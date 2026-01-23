@@ -1,13 +1,33 @@
 package gateway
 
-type API struct {
-	Env      string //环境 比如Test 测试环境，Dev 开发环境，Prod 生产环境
-	Cluster  string //集群 比如China 中国集群，America 美国集群，Europe 欧洲集群
-	Company  string //公司名称 比如 TalentLimited
-	Project  string //项目名称
-	Service  string //服务的名称
-	Color    string //染色 比如Red
-	Protocol string //通信协议 比如http
-	Ip       string //地址
-	Port     uint16 //端口
+import (
+	"fmt"
+)
+
+type Endpoint struct {
+	InstanceID string            // 实例ID 全局唯一
+	Env        string            // 环境 比如Test 测试环境，Dev 开发环境，Prod 生产环境
+	Cluster    string            // 集群 比如China 中国集群，America 美国集群，Europe 欧洲集群
+	Company    string            // 公司名称 比如 TalentLimited
+	Project    string            // 项目名称
+	Service    string            // 服务的名称
+	Color      string            // 染色 比如Red
+	Protocol   string            // 通信协议 比如http
+	Ip         string            // 地址
+	Port       uint16            // 端口
+	Extra      map[string]string // 额外元数据
+	TTL        uint32            // TTL-Seconds 生存时间
+}
+
+func (e *Endpoint) GetExtra(key string) string {
+	if e.Extra == nil {
+		return ""
+	}
+	return e.Extra[key]
+}
+func (e *Endpoint) ID() string {
+	if len(e.InstanceID) > 0 {
+		return e.InstanceID
+	}
+	return fmt.Sprintf("%s.%s.%s.%s.%s.%s.%s.%s:%d", e.Env, e.Cluster, e.Company, e.Project, e.Service, e.Protocol, e.Color, e.Ip, e.Port)
 }
