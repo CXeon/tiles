@@ -11,8 +11,8 @@ type Endpoint struct {
 	Company    string            // 公司名称 比如 TalentLimited
 	Project    string            // 项目名称
 	Service    string            // 服务的名称
-	Color      string            // 染色 比如Red
 	Protocol   string            // 通信协议 比如http
+	Color      string            // 染色 比如Red
 	Ip         string            // 地址
 	Port       uint16            // 端口
 	Extra      map[string]string // 额外元数据
