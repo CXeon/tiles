@@ -15,6 +15,9 @@ type KvStore interface {
 	//  返回map的key是匹配到的key
 	GetByPrefix(prefix string) (map[string][]byte, error)
 
+	// Delete 删除数据
+	Delete(key string) error
+
 	// Close 关闭连接
 	Close() error
 }

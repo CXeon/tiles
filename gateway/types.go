@@ -4,6 +4,21 @@ import (
 	"fmt"
 )
 
+type ProtocolType string
+
+const (
+	ProtocolTypeHttp  = "http"
+	ProtocolTypeHttps = "https"
+)
+
+func (p ProtocolType) Validate() error {
+	switch p {
+	case ProtocolTypeHttp, ProtocolTypeHttps:
+		return nil
+	}
+	return fmt.Errorf("protocol type %s is not supported", p)
+}
+
 type Endpoint struct {
 	InstanceID string            // 实例ID 全局唯一
 	Env        string            // 环境 比如Test 测试环境，Dev 开发环境，Prod 生产环境
@@ -11,7 +26,7 @@ type Endpoint struct {
 	Company    string            // 公司名称 比如 TalentLimited
 	Project    string            // 项目名称
 	Service    string            // 服务的名称
-	Protocol   string            // 通信协议 比如http
+	Protocol   ProtocolType      // 通信协议 比如http
 	Color      string            // 染色 比如Red
 	Ip         string            // 地址
 	Port       uint16            // 端口

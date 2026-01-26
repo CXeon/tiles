@@ -31,7 +31,7 @@ func (con *constructor) genDefaultRouterName(endpoint *gateway.Endpoint) string 
 
 // 生成默认的key前缀
 func (con *constructor) genDefaultRouterPrefix(endpoint *gateway.Endpoint) string {
-	protocol := strings.ToLower(endpoint.Protocol)
+	protocol := strings.ToLower(string(endpoint.Protocol))
 	if protocol == "https" {
 		protocol = "http"
 	}
@@ -41,12 +41,12 @@ func (con *constructor) genDefaultRouterPrefix(endpoint *gateway.Endpoint) strin
 
 // GenRouterRuleKey 生成router的rule key
 func (con *constructor) GenRouterRuleKey(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "/rule"
+	return con.genDefaultRouterPrefix(&endpoint) + "rule"
 }
 
 // GenRouterEntrypointKeyPrefix 生成router的entrypoint key前缀
 func (con *constructor) GenRouterEntrypointKeyPrefix(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "/entrypoints/"
+	return con.genDefaultRouterPrefix(&endpoint) + "entrypoints/"
 }
 
 // GenRouterEntrypointKey 生成router的entrypoint key
@@ -56,32 +56,32 @@ func (con *constructor) GenRouterEntrypointKey(index int, endpoint gateway.Endpo
 
 // GenRouterMiddlewareKey 生成router的middleware key
 func (con *constructor) GenRouterMiddlewareKey(index int, endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "/middlewares/" + strconv.Itoa(index)
+	return con.genDefaultRouterPrefix(&endpoint) + "middlewares/" + strconv.Itoa(index)
 }
 
 // GenRouterServiceKey 生成router的service key
 func (con *constructor) GenRouterServiceKey(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "/service"
+	return con.genDefaultRouterPrefix(&endpoint) + "service"
 }
 
 // GenRouterPriorityKey 生成router的priority key
 func (con *constructor) GenRouterPriorityKey(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "/priority"
+	return con.genDefaultRouterPrefix(&endpoint) + "priority"
 }
 
 // GenRouterObservabilityAccesslogsKey 生成router的observability accesslogs key
 func (con *constructor) GenRouterObservabilityAccesslogsKey(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "/observability/accesslogs"
+	return con.genDefaultRouterPrefix(&endpoint) + "observability/accesslogs"
 }
 
 // GenRouterObservabilityMetricsKey 生成router的observability metrics key
 func (con *constructor) GenRouterObservabilityMetricsKey(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "/observability/metrics"
+	return con.genDefaultRouterPrefix(&endpoint) + "observability/metrics"
 }
 
 // GenRouterObservabilityTracingKey 生成router的observability tracing key
 func (con *constructor) GenRouterObservabilityTracingKey(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "/observability/tracing"
+	return con.genDefaultRouterPrefix(&endpoint) + "observability/tracing"
 }
 
 /**Services**/
@@ -93,7 +93,7 @@ func (con *constructor) genDefaultServiceName(endpoint *gateway.Endpoint) string
 
 // 生成默认的service key前缀
 func (con *constructor) genDefaultServicePrefix(endpoint *gateway.Endpoint) string {
-	protocol := strings.ToLower(endpoint.Protocol)
+	protocol := strings.ToLower(string(endpoint.Protocol))
 	if protocol == "https" {
 		protocol = "http"
 	}
@@ -171,7 +171,7 @@ func (con *constructor) GenServiceHealthCheckTimeoutKey(endpoint gateway.Endpoin
 
 // GenServiceAddressKey 生成service的address key
 func (con *constructor) GenServiceAddressKey(index int, endpoint gateway.Endpoint) string {
-	protocol := strings.ToLower(endpoint.Protocol)
+	protocol := strings.ToLower(string(endpoint.Protocol))
 	if protocol != "udp" {
 		return con.genDefaultServicePrefix(&endpoint) + "loadbalancer/servers/" + strconv.Itoa(index) + "/address"
 	}
