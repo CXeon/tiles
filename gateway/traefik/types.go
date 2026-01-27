@@ -1,6 +1,9 @@
 package traefik
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 type ProviderType uint8
 
@@ -29,5 +32,14 @@ type Provider struct {
 	Password  string
 	DBIndex   int
 	Namespace string
-	Token     string
+
+	// Connection pool settings
+	PoolSize     int // Maximum number of connections
+	MinIdleConns int // Minimum number of idle connections
+	MaxIdleConns int // Maximum number of idle connections
+
+	// Timeout settings
+	ConnectTimeout time.Duration // Connection timeout
+	ReadTimeout    time.Duration // Read operation timeout
+	WriteTimeout   time.Duration // Write operation timeout
 }

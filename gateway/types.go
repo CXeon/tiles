@@ -32,6 +32,7 @@ type Endpoint struct {
 	Port       uint16            // 端口
 	Extra      map[string]string // 额外元数据
 	TTL        uint32            // TTL-Seconds 生存时间
+	Weight     uint16            // 实例权重，为0时不设置
 }
 
 func (e *Endpoint) GetExtra(key string) string {

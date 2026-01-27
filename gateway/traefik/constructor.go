@@ -25,48 +25,52 @@ func NewConstructor(prefix ...string) *constructor {
 /** Routers **/
 
 // 生成默认的router名
-func (con *constructor) genDefaultRouterName(endpoint *gateway.Endpoint) string {
-	return fmt.Sprintf("%s.%s.%s.%s.%s.%s.%s", endpoint.Env, endpoint.Cluster, endpoint.Company, endpoint.Project, endpoint.Service, endpoint.Protocol, endpoint.Color)
+func (con *constructor) genDefaultRouterName(endpoint *gateway.Endpoint, suffix ...string) string {
+	name := fmt.Sprintf("%s.%s.%s.%s.%s.%s.%s", endpoint.Env, endpoint.Cluster, endpoint.Company, endpoint.Project, endpoint.Service, endpoint.Protocol, endpoint.Color)
+	if len(suffix) > 0 && suffix[0] != "" {
+		name += "." + suffix[0]
+	}
+	return name
 }
 
 // 生成默认的key前缀
-func (con *constructor) genDefaultRouterPrefix(endpoint *gateway.Endpoint) string {
+func (con *constructor) genDefaultRouterPrefix(endpoint *gateway.Endpoint, suffix ...string) string {
 	protocol := strings.ToLower(string(endpoint.Protocol))
 	if protocol == "https" {
 		protocol = "http"
 	}
 
-	return fmt.Sprintf("%s/%s/%s/%s/", con.prefix, protocol, "routers", con.genDefaultRouterName(endpoint))
+	return fmt.Sprintf("%s/%s/%s/%s/", con.prefix, protocol, "routers", con.genDefaultRouterName(endpoint, suffix...))
 }
 
 // GenRouterRuleKey 生成router的rule key
-func (con *constructor) GenRouterRuleKey(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "rule"
+func (con *constructor) GenRouterRuleKey(endpoint gateway.Endpoint, suffix ...string) string {
+	return con.genDefaultRouterPrefix(&endpoint, suffix...) + "rule"
 }
 
 // GenRouterEntrypointKeyPrefix 生成router的entrypoint key前缀
-func (con *constructor) GenRouterEntrypointKeyPrefix(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "entrypoints/"
+func (con *constructor) GenRouterEntrypointKeyPrefix(endpoint gateway.Endpoint, suffix ...string) string {
+	return con.genDefaultRouterPrefix(&endpoint, suffix...) + "entrypoints/"
 }
 
 // GenRouterEntrypointKey 生成router的entrypoint key
-func (con *constructor) GenRouterEntrypointKey(index int, endpoint gateway.Endpoint) string {
-	return con.GenRouterEntrypointKeyPrefix(endpoint) + strconv.Itoa(index)
+func (con *constructor) GenRouterEntrypointKey(index int, endpoint gateway.Endpoint, suffix ...string) string {
+	return con.GenRouterEntrypointKeyPrefix(endpoint, suffix...) + strconv.Itoa(index)
 }
 
 // GenRouterMiddlewareKey 生成router的middleware key
-func (con *constructor) GenRouterMiddlewareKey(index int, endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "middlewares/" + strconv.Itoa(index)
+func (con *constructor) GenRouterMiddlewareKey(index int, endpoint gateway.Endpoint, suffix ...string) string {
+	return con.genDefaultRouterPrefix(&endpoint, suffix...) + "middlewares/" + strconv.Itoa(index)
 }
 
 // GenRouterServiceKey 生成router的service key
-func (con *constructor) GenRouterServiceKey(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "service"
+func (con *constructor) GenRouterServiceKey(endpoint gateway.Endpoint, suffix ...string) string {
+	return con.genDefaultRouterPrefix(&endpoint, suffix...) + "service"
 }
 
 // GenRouterPriorityKey 生成router的priority key
-func (con *constructor) GenRouterPriorityKey(endpoint gateway.Endpoint) string {
-	return con.genDefaultRouterPrefix(&endpoint) + "priority"
+func (con *constructor) GenRouterPriorityKey(endpoint gateway.Endpoint, suffix ...string) string {
+	return con.genDefaultRouterPrefix(&endpoint, suffix...) + "priority"
 }
 
 // GenRouterObservabilityAccesslogsKey 生成router的observability accesslogs key
@@ -84,11 +88,37 @@ func (con *constructor) GenRouterObservabilityTracingKey(endpoint gateway.Endpoi
 	return con.genDefaultRouterPrefix(&endpoint) + "observability/tracing"
 }
 
+// GenRouterPrefixAll 返回所有 router 的共同前缀（用于批量删除 protected 和 public router）
+// 例如: traefik/http/routers/dev.china.testco.testprj.testsvc.http.blue
+func (con *constructor) GenRouterPrefixAll(endpoint gateway.Endpoint) string {
+	protocol := strings.ToLower(string(endpoint.Protocol))
+	if protocol == "https" {
+		protocol = "http"
+	}
+	// 返回到 router name 的基础前缀，包含所有后缀（如 .public）
+	baseName := fmt.Sprintf("%s.%s.%s.%s.%s.%s.%s",
+		endpoint.Env, endpoint.Cluster, endpoint.Company,
+		endpoint.Project, endpoint.Service, protocol, endpoint.Color)
+	return fmt.Sprintf("%s/%s/%s/%s", con.prefix, protocol, "routers", baseName)
+}
+
 /**Services**/
 
-// 生成默认的service名
+// genDefaultServiceName 生成默认的service名（基于服务逻辑标识，不包含实例信息）
+// 同一服务的多个实例共享同一个 Service Name，通过 loadbalancer 实现负载均衡
 func (con *constructor) genDefaultServiceName(endpoint *gateway.Endpoint) string {
-	return endpoint.ID()
+	protocol := strings.ToLower(string(endpoint.Protocol))
+	if protocol == "https" {
+		protocol = "http"
+	}
+	return fmt.Sprintf("%s.%s.%s.%s.%s.%s.%s",
+		endpoint.Env, endpoint.Cluster, endpoint.Company,
+		endpoint.Project, endpoint.Service, protocol, endpoint.Color)
+}
+
+// GenServiceName 导出方法，调用私有方法实现
+func (con *constructor) GenServiceName(endpoint gateway.Endpoint) string {
+	return con.genDefaultServiceName(&endpoint)
 }
 
 // 生成默认的service key前缀
@@ -100,8 +130,19 @@ func (con *constructor) genDefaultServicePrefix(endpoint *gateway.Endpoint) stri
 	return fmt.Sprintf("%s/%s/%s/%s/", con.prefix, protocol, "services", con.genDefaultServiceName(endpoint))
 }
 
+// GenServicePrefix 返回整个 service 的前缀（用于批量删除）
+func (con *constructor) GenServicePrefix(endpoint gateway.Endpoint) string {
+	return con.genDefaultServicePrefix(&endpoint)
+}
+
 func (con *constructor) GenServiceLoadbalancerServiceKeyPrefix(endpoint gateway.Endpoint) string {
 	return con.genDefaultServicePrefix(&endpoint) + "loadbalancer/servers/"
+}
+
+// GenServiceInstancePrefix 返回单个服务实例的前缀（用于删除特定实例）
+// 例如: traefik/http/services/[service-id]/loadbalancer/servers/0/
+func (con *constructor) GenServiceInstancePrefix(index int, endpoint gateway.Endpoint) string {
+	return con.GenServiceLoadbalancerServiceKeyPrefix(endpoint) + strconv.Itoa(index) + "/"
 }
 
 // GenServiceUrlKey 生成service的url key

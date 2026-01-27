@@ -2,6 +2,7 @@ package traefik
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -10,6 +11,12 @@ import (
 	"github.com/CXeon/tiles/gateway"
 	"github.com/CXeon/tiles/gateway/traefik/kv_store"
 )
+
+type HandlerOptions struct {
+	Middlewares      []string
+	HealthCheckPath  string
+	ExcludeAuthPaths []string
+}
 
 type handler struct {
 	ctx   context.Context
@@ -26,9 +33,38 @@ func NewHandler(ctx context.Context, provider *Provider) (*handler, error) {
 
 	switch provider.KVType {
 	case ProviderTypeRedis:
-		store, err = kv_store.NewRedisStore(ctx, provider.Endpoints, provider.Password, provider.DBIndex)
+		store, err = kv_store.NewRedisStore(ctx, kv_store.RedisConfig{
+			Endpoints:      provider.Endpoints,
+			Password:       provider.Password,
+			DB:             provider.DBIndex,
+			PoolSize:       provider.PoolSize,
+			MinIdleConns:   provider.MinIdleConns,
+			ConnectTimeout: provider.ConnectTimeout,
+			ReadTimeout:    provider.ReadTimeout,
+			WriteTimeout:   provider.WriteTimeout,
+		})
 	case ProviderTypeConsul:
-		store, err = kv_store.NewConsulStore(ctx, provider.Endpoints, provider.Token)
+		store, err = kv_store.NewConsulStore(ctx, kv_store.ConsulConfig{
+			Endpoints:      provider.Endpoints,
+			Username:       provider.Username,
+			Password:       provider.Password,
+			ConnectTimeout: provider.ConnectTimeout,
+			ReadTimeout:    provider.ReadTimeout,
+		})
+	case ProviderTypeEtcd:
+		store, err = kv_store.NewEtcdStore(ctx, kv_store.EtcdConfig{
+			Endpoints:      provider.Endpoints,
+			Username:       provider.Username,
+			Password:       provider.Password,
+			ConnectTimeout: provider.ConnectTimeout,
+			ReadTimeout:    provider.ReadTimeout,
+		})
+	case ProviderTypeZooKeeper:
+		store, err = kv_store.NewZookeeperStore(ctx, kv_store.ZookeeperConfig{
+			Endpoints:      provider.Endpoints,
+			ConnectTimeout: provider.ConnectTimeout,
+			SessionTimeout: provider.ReadTimeout,
+		})
 	default:
 		return nil, fmt.Errorf("unsupported traefik provider type: %v", provider.KVType)
 	}
@@ -43,115 +79,59 @@ func NewHandler(ctx context.Context, provider *Provider) (*handler, error) {
 	}, nil
 }
 
-func (h *handler) Register(endpoint gateway.Endpoint) error {
+func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) error {
+	var opt HandlerOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 
 	constructor := NewConstructor()
-	// 1.检查ruleKey是否存在，如果不存在新增，存在继续后面流程
-	ruleKey := constructor.GenRouterRuleKey(endpoint)
-	rule, err := h.store.Get(ruleKey)
+
+	// 1. 注册受保护路由 (Protected Router)
+	// 规则：基础路径前缀 + 精确匹配环境、集群、染色
+	basePath := fmt.Sprintf("/%s/%s/%s/", endpoint.Company, endpoint.Project, endpoint.Service)
+	protectedRule := fmt.Sprintf("PathPrefix(`%s`) && Header(`X-Env`, `%s`) && Header(`X-Cluster`, `%s`) && Header(`X-Color`, `%s`)",
+		basePath, endpoint.Env, endpoint.Cluster, endpoint.Color)
+	err := h.upsertRouter(endpoint, "", protectedRule, opt.Middlewares, 0)
 	if err != nil {
 		return err
 	}
-	if len(rule) == 0 {
-		pathPrefix := fmt.Sprintf("/%s/%s/%s/", endpoint.Company, endpoint.Project, endpoint.Service)
-		rulePathPrefix := fmt.Sprintf("PathPrefix(`%s`)", pathPrefix)
 
-		ruleHeaderRegexp := fmt.Sprintf("HeaderRegexp(`X-Env`, `[A-Za-z0-9]`)&&HeaderRegexp(`X-Cluster`, `[A-Za-z0-9]`)")
-
-		str := fmt.Sprintf("%s&&%s", rulePathPrefix, ruleHeaderRegexp)
-		rule = []byte(str)
-		err = h.store.Put(ruleKey, rule)
-		if err != nil {
-			return err
+	// 2. 注册公开路由 (Public Router) - 如果有排除路径
+	if len(opt.ExcludeAuthPaths) > 0 {
+		// 规则：所有排除路径的集合 + 精确匹配环境、集群、染色
+		paths := make([]string, 0, len(opt.ExcludeAuthPaths))
+		for _, p := range opt.ExcludeAuthPaths {
+			paths = append(paths, fmt.Sprintf("`%s`", p))
 		}
-	}
+		publicRule := fmt.Sprintf("PathPrefix(%s) && Header(`X-Env`, `%s`) && Header(`X-Cluster`, `%s`) && Header(`X-Color`, `%s`)",
+			strings.Join(paths, ", "), endpoint.Env, endpoint.Cluster, endpoint.Color)
 
-	// 2. 根据 option 设置 router middleware
-	middlewares := endpoint.GetExtra("traefik.router.middlewares")
-	if len(middlewares) > 0 {
-		middlewareList := strings.Split(middlewares, ",")
-		for i, m := range middlewareList {
-			mKey := constructor.GenRouterMiddlewareKey(i, endpoint)
-			err = h.store.Put(mKey, []byte(strings.TrimSpace(m)))
-			if err != nil {
-				return err
+		// 剔除身份验证中间件 (ForwardAuth)
+		publicMiddlewares := make([]string, 0)
+		for _, m := range opt.Middlewares {
+			if m != "ForwardAuth" {
+				publicMiddlewares = append(publicMiddlewares, m)
 			}
 		}
-	}
 
-	// 3.检查并设置router的entrypoint
-	routerEntrypointPrefix := constructor.GenRouterEntrypointKeyPrefix(endpoint)
-	routerEntrypointMap, err := h.store.GetByPrefix(routerEntrypointPrefix)
-	if err != nil {
-		return err
-	}
-	currentMaxRouterEntrypointIndex := -1
-	defaultEntrypointWebExists, defaultEntrypointWebsecureExists := false, false
-
-	for k, v := range routerEntrypointMap {
-		slashIndex := strings.LastIndex(k, "/")
-		numStr := k[slashIndex+1:]
-		num, err := strconv.Atoi(numStr)
-		if err != nil {
-			return err
-		}
-		if num > currentMaxRouterEntrypointIndex {
-			currentMaxRouterEntrypointIndex = num
-		}
-
-		if strings.ToLower(string(v)) == "web" {
-			defaultEntrypointWebExists = true
-			continue
-		}
-
-		if strings.ToLower(string(v)) == "websecure" {
-			defaultEntrypointWebsecureExists = true
-			continue
-		}
-
-	}
-
-	if !defaultEntrypointWebExists {
-		currentMaxRouterEntrypointIndex = currentMaxRouterEntrypointIndex + 1
-		err = h.store.Put(constructor.GenRouterEntrypointKey(currentMaxRouterEntrypointIndex, endpoint), []byte("web"))
-		if err != nil {
-			return err
-		}
-	}
-	if !defaultEntrypointWebsecureExists {
-		currentMaxRouterEntrypointIndex = currentMaxRouterEntrypointIndex + 1
-		err = h.store.Put(constructor.GenRouterEntrypointKey(currentMaxRouterEntrypointIndex, endpoint), []byte("websecure"))
+		// 设置更高的优先级
+		err = h.upsertRouter(endpoint, "public", publicRule, publicMiddlewares, 1000)
 		if err != nil {
 			return err
 		}
 	}
 
-	// 4. 检查并设置router对应的service
-	routerServiceKey := constructor.GenRouterServiceKey(endpoint)
-	routerService, err := h.store.Get(routerServiceKey)
-	if err != nil {
-		return err
-	}
-	if len(routerService) == 0 {
-		err = h.store.Put(routerServiceKey, []byte(endpoint.ID()))
-		if err != nil {
-			return err
-		}
-	}
-
-	// 5. 根据 option 设置 service 权重
-	// 移至步骤 6 处理
-
-	// 6. 检查并设置service url
+	// 3. 检查并设置service url
 	loadbalancerServiceKeyPrefix := constructor.GenServiceLoadbalancerServiceKeyPrefix(endpoint)
-	loadbalancerServerMap, err := h.store.GetByPrefix(loadbalancerServiceKeyPrefix)
+	loadbalancerServerMap, err := h.store.GetByPrefix(h.ctx, loadbalancerServiceKeyPrefix)
 	if err != nil {
 		return err
 	}
 
 	currentMaxServicesURLIndex := -1
 	serverURLExists := false
-	reg, err := regexp.Compile("^" + loadbalancerServiceKeyPrefix + "[0-9]+/url&")
+	reg, err := regexp.Compile("^" + loadbalancerServiceKeyPrefix + "[0-9]+/url$")
 	if err != nil {
 		return err
 	}
@@ -160,9 +140,12 @@ func (h *handler) Register(endpoint gateway.Endpoint) error {
 		if reg.MatchString(k) {
 			tmp := strings.Replace(k, loadbalancerServiceKeyPrefix, "", 1)
 			tmpSli := strings.Split(tmp, "/")
-			currentMaxServicesURLIndex, err = strconv.Atoi(tmpSli[0])
+			idx, err := strconv.Atoi(tmpSli[0])
 			if err != nil {
 				return err
+			}
+			if idx > currentMaxServicesURLIndex {
+				currentMaxServicesURLIndex = idx
 			}
 
 			serverURL := fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)
@@ -172,32 +155,28 @@ func (h *handler) Register(endpoint gateway.Endpoint) error {
 			}
 		}
 	}
-	if !serverURLExists {
 
+	if !serverURLExists {
 		currentMaxServicesURLIndex = currentMaxServicesURLIndex + 1
 		serviceURLKey := constructor.GenServiceUrlKey(currentMaxServicesURLIndex, endpoint)
-		err = h.store.Put(serviceURLKey, []byte(fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)))
+		err = h.store.Put(h.ctx, serviceURLKey, []byte(fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)))
 		if err != nil {
 			return err
 		}
 
 		// 设置权重
-		weight := endpoint.GetExtra("traefik.service.weight")
-		if len(weight) > 0 {
+		if endpoint.Weight > 0 {
 			weightKey := constructor.GenServiceWeightKey(currentMaxServicesURLIndex, endpoint)
-			err = h.store.Put(weightKey, []byte(weight))
+			err = h.store.Put(h.ctx, weightKey, []byte(strconv.Itoa(int(endpoint.Weight))))
 			if err != nil {
 				return err
 			}
 		}
 
 		serviceHealthcheckPathKey := constructor.GenServiceHealthCheckPathKey(endpoint)
+		healthcheckPath := opt.HealthCheckPath
 
-		healthcheckPath := endpoint.GetExtra("traefik.service.healthcheck.path")
-		if len(healthcheckPath) == 0 {
-			healthcheckPath = "/health"
-		}
-		err = h.store.Put(serviceHealthcheckPathKey, []byte(healthcheckPath))
+		err = h.store.Put(h.ctx, serviceHealthcheckPathKey, []byte(healthcheckPath))
 		if err != nil {
 			return err
 		}
@@ -206,37 +185,140 @@ func (h *handler) Register(endpoint gateway.Endpoint) error {
 	return nil
 }
 
-func (h *handler) Deregister(endpoint gateway.Endpoint) error {
+// upsertRouter 封装路由创建逻辑
+func (h *handler) upsertRouter(endpoint gateway.Endpoint, suffix string, rule string, middlewares []string, priority int) error {
 	constructor := NewConstructor()
 
-	// 1. 删除 service url
-	loadbalancerServiceKeyPrefix := constructor.GenServiceLoadbalancerServiceKeyPrefix(endpoint)
-	loadbalancerServerMap, err := h.store.GetByPrefix(loadbalancerServiceKeyPrefix)
+	// 1. 设置 Rule
+	ruleKey := constructor.GenRouterRuleKey(endpoint, suffix)
+	err := h.store.Put(h.ctx, ruleKey, []byte(rule))
 	if err != nil {
 		return err
 	}
 
+	// 2. 设置 Middlewares
+	if len(middlewares) > 0 {
+		for i, m := range middlewares {
+			mKey := constructor.GenRouterMiddlewareKey(i, endpoint, suffix)
+			err = h.store.Put(h.ctx, mKey, []byte(strings.TrimSpace(m)))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// 3. 设置 Entrypoints (固定 web 和 websecure)
+	entrypoints := []string{"web", "websecure"}
+	for i, ep := range entrypoints {
+		err = h.store.Put(h.ctx, constructor.GenRouterEntrypointKey(i, endpoint, suffix), []byte(ep))
+		if err != nil {
+			return err
+		}
+	}
+
+	// 4. 设置 Service 关联（使用服务逻辑标识，而非实例 ID）
+	routerServiceKey := constructor.GenRouterServiceKey(endpoint, suffix)
+	serviceName := constructor.GenServiceName(endpoint)
+	err = h.store.Put(h.ctx, routerServiceKey, []byte(serviceName))
+	if err != nil {
+		return err
+	}
+
+	// 5. 设置 Priority
+	if priority > 0 {
+		priorityKey := constructor.GenRouterPriorityKey(endpoint, suffix)
+		err = h.store.Put(h.ctx, priorityKey, []byte(strconv.Itoa(priority)))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Deregister 注销服务（完全清除所有相关配置）
+func (h *handler) Deregister(endpoint gateway.Endpoint, opts ...HandlerOptions) error {
+	constructor := NewConstructor()
+
+	// 1. 查找所有服务实例
+	loadbalancerServiceKeyPrefix := constructor.GenServiceLoadbalancerServiceKeyPrefix(endpoint)
+	loadbalancerServerMap, err := h.store.GetByPrefix(h.ctx, loadbalancerServiceKeyPrefix)
+	if err != nil {
+		if errors.Is(err, kv_store.ErrConnectionFailed) {
+			return fmt.Errorf("kv store connection failed: %w", err)
+		}
+		// ErrKeyNotFound 说明已经被删除，可以忽略
+		if !errors.Is(err, kv_store.ErrKeyNotFound) {
+			return fmt.Errorf("failed to get service instances: %w", err)
+		}
+		// 已经没有配置，直接返回
+		return nil
+	}
+
+	// 2. 查找并删除当前实例
 	serverURL := fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)
+	instanceIndex := -1
 	for k, v := range loadbalancerServerMap {
 		if strings.HasSuffix(k, "/url") {
 			if serverURL == string(v) || serverURL+"/" == string(v) {
-				// 获取索引，例如 .../servers/0/url -> 0
 				tmp := strings.TrimPrefix(k, loadbalancerServiceKeyPrefix)
 				tmpSli := strings.Split(tmp, "/")
 				if len(tmpSli) > 0 {
-					indexStr := tmpSli[0]
-					index, _ := strconv.Atoi(indexStr)
-
-					// 删除该索引下的所有相关 key
-					err = h.store.Delete(k)
-					if err != nil {
-						return err
-					}
-
-					// 尝试删除 weight 和 preservePath
-					_ = h.store.Delete(constructor.GenServiceWeightKey(index, endpoint))
-					_ = h.store.Delete(constructor.GenServicePreservePathKey(index, endpoint))
+					instanceIndex, _ = strconv.Atoi(tmpSli[0])
+					break
 				}
+			}
+		}
+	}
+
+	// 如果没有找到当前实例，直接返回
+	if instanceIndex < 0 {
+		return nil
+	}
+
+	// 删除当前实例的配置
+	instancePrefix := constructor.GenServiceInstancePrefix(instanceIndex, endpoint)
+	if err := h.store.DeleteByPrefix(h.ctx, instancePrefix); err != nil {
+		if errors.Is(err, kv_store.ErrConnectionFailed) {
+			return fmt.Errorf("kv store connection failed: %w", err)
+		}
+		if !errors.Is(err, kv_store.ErrKeyNotFound) {
+			return fmt.Errorf("failed to delete instance config: %w", err)
+		}
+	}
+
+	// 3. 判断是否为最后一个实例
+	remainingInstances := 0
+	for k := range loadbalancerServerMap {
+		if strings.HasSuffix(k, "/url") {
+			// 排除当前实例
+			if !strings.HasPrefix(k, instancePrefix) {
+				remainingInstances++
+			}
+		}
+	}
+
+	// 4. 如果是最后一个实例，删除所有配置
+	if remainingInstances == 0 {
+		// 删除所有 router 配置
+		routerPrefix := constructor.GenRouterPrefixAll(endpoint)
+		if err := h.store.DeleteByPrefix(h.ctx, routerPrefix); err != nil {
+			if errors.Is(err, kv_store.ErrConnectionFailed) {
+				return fmt.Errorf("kv store connection failed: %w", err)
+			}
+			if !errors.Is(err, kv_store.ErrKeyNotFound) {
+				return fmt.Errorf("failed to delete router config: %w", err)
+			}
+		}
+
+		// 删除整个 service 配置
+		servicePrefix := constructor.GenServicePrefix(endpoint)
+		if err := h.store.DeleteByPrefix(h.ctx, servicePrefix); err != nil {
+			if errors.Is(err, kv_store.ErrConnectionFailed) {
+				return fmt.Errorf("kv store connection failed: %w", err)
+			}
+			if !errors.Is(err, kv_store.ErrKeyNotFound) {
+				return fmt.Errorf("failed to delete service config: %w", err)
 			}
 		}
 	}
@@ -244,9 +326,66 @@ func (h *handler) Deregister(endpoint gateway.Endpoint) error {
 	return nil
 }
 
-func (h *handler) Update(endpoint gateway.Endpoint) error {
-	// Update 逻辑目前和 Register 类似，因为都是幂等操作
-	return h.Register(endpoint)
+// Update 更新服务配置（先删除旧配置，再重新注册）
+func (h *handler) Update(endpoint gateway.Endpoint, opts ...HandlerOptions) error {
+	constructor := NewConstructor()
+
+	// 1. 删除所有 router 配置（protected + public）
+	routerPrefix := constructor.GenRouterPrefixAll(endpoint)
+	if err := h.store.DeleteByPrefix(h.ctx, routerPrefix); err != nil {
+		if errors.Is(err, kv_store.ErrConnectionFailed) {
+			return fmt.Errorf("kv store connection failed: %w", err)
+		}
+		if !errors.Is(err, kv_store.ErrKeyNotFound) {
+			return fmt.Errorf("failed to delete old router config: %w", err)
+		}
+	}
+
+	// 2. 查找并删除当前实例的 service 配置
+	loadbalancerServiceKeyPrefix := constructor.GenServiceLoadbalancerServiceKeyPrefix(endpoint)
+	loadbalancerServerMap, err := h.store.GetByPrefix(h.ctx, loadbalancerServiceKeyPrefix)
+	if err != nil {
+		if errors.Is(err, kv_store.ErrConnectionFailed) {
+			return fmt.Errorf("kv store connection failed: %w", err)
+		}
+		// ErrKeyNotFound 是正常的，说明之前没有配置
+		if !errors.Is(err, kv_store.ErrKeyNotFound) {
+			return fmt.Errorf("failed to get service instances: %w", err)
+		}
+		loadbalancerServerMap = make(map[string][]byte)
+	}
+
+	// 查找当前实例的索引
+	serverURL := fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)
+	instanceIndex := -1
+	for k, v := range loadbalancerServerMap {
+		if strings.HasSuffix(k, "/url") {
+			if serverURL == string(v) || serverURL+"/" == string(v) {
+				tmp := strings.TrimPrefix(k, loadbalancerServiceKeyPrefix)
+				tmpSli := strings.Split(tmp, "/")
+				if len(tmpSli) > 0 {
+					instanceIndex, _ = strconv.Atoi(tmpSli[0])
+					break
+				}
+			}
+		}
+	}
+
+	// 如果找到了当前实例，删除它的配置
+	if instanceIndex >= 0 {
+		instancePrefix := constructor.GenServiceInstancePrefix(instanceIndex, endpoint)
+		if err := h.store.DeleteByPrefix(h.ctx, instancePrefix); err != nil {
+			if errors.Is(err, kv_store.ErrConnectionFailed) {
+				return fmt.Errorf("kv store connection failed: %w", err)
+			}
+			if !errors.Is(err, kv_store.ErrKeyNotFound) {
+				return fmt.Errorf("failed to delete instance config: %w", err)
+			}
+		}
+	}
+
+	// 3. 调用 Register 重新注册
+	return h.Register(endpoint, opts...)
 }
 
 func (h *handler) Close() error {
