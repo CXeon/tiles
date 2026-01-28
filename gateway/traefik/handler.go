@@ -90,8 +90,8 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 	// 1. 注册受保护路由 (Protected Router)
 	// 规则：基础路径前缀 + 精确匹配环境、集群、染色
 	basePath := fmt.Sprintf("/%s/%s/%s/", endpoint.Company, endpoint.Project, endpoint.Service)
-	protectedRule := fmt.Sprintf("PathPrefix(`%s`) && Header(`X-Env`, `%s`) && Header(`X-Cluster`, `%s`) && Header(`X-Color`, `%s`)",
-		basePath, endpoint.Env, endpoint.Cluster, endpoint.Color)
+	protectedRule := fmt.Sprintf("PathPrefix(`%s`) && Header(`%s`, `%s`) && Header(`%s`, `%s`) && Header(`%s`, `%s`)",
+		basePath, HeaderKeyEnv, endpoint.Env, HeaderKeyCluster, endpoint.Cluster, HeaderKeyColor, endpoint.Color)
 	err := h.upsertRouter(endpoint, "", protectedRule, opt.Middlewares, 0)
 	if err != nil {
 		return err
@@ -104,13 +104,13 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 		for _, p := range opt.ExcludeAuthPaths {
 			paths = append(paths, fmt.Sprintf("`%s`", p))
 		}
-		publicRule := fmt.Sprintf("PathPrefix(%s) && Header(`X-Env`, `%s`) && Header(`X-Cluster`, `%s`) && Header(`X-Color`, `%s`)",
-			strings.Join(paths, ", "), endpoint.Env, endpoint.Cluster, endpoint.Color)
+		publicRule := fmt.Sprintf("PathPrefix(%s) && Header(`%s`, `%s`) && Header(`%s`, `%s`) && Header(`%s`, `%s`)",
+			strings.Join(paths, ", "), HeaderKeyEnv, endpoint.Env, HeaderKeyCluster, endpoint.Cluster, HeaderKeyColor, endpoint.Color)
 
 		// 剔除身份验证中间件 (ForwardAuth)
 		publicMiddlewares := make([]string, 0)
 		for _, m := range opt.Middlewares {
-			if m != "ForwardAuth" {
+			if m != DefaultAuthMiddleware {
 				publicMiddlewares = append(publicMiddlewares, m)
 			}
 		}
@@ -122,7 +122,16 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 		}
 	}
 
-	// 3. 检查并设置service url
+	// 3. 设置 HealthCheck Path（公共配置，直接 Put）
+	if opt.HealthCheckPath != "" {
+		serviceHealthcheckPathKey := constructor.GenServiceHealthCheckPathKey(endpoint)
+		err := h.store.Put(h.ctx, serviceHealthcheckPathKey, []byte(opt.HealthCheckPath))
+		if err != nil {
+			return err
+		}
+	}
+
+	// 4. 检查并设置service url
 	loadbalancerServiceKeyPrefix := constructor.GenServiceLoadbalancerServiceKeyPrefix(endpoint)
 	loadbalancerServerMap, err := h.store.GetByPrefix(h.ctx, loadbalancerServiceKeyPrefix)
 	if err != nil {
@@ -159,26 +168,28 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 	if !serverURLExists {
 		currentMaxServicesURLIndex = currentMaxServicesURLIndex + 1
 		serviceURLKey := constructor.GenServiceUrlKey(currentMaxServicesURLIndex, endpoint)
-		err = h.store.Put(h.ctx, serviceURLKey, []byte(fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)))
+
+		// 使用 TTL（如果 endpoint.TTL > 0）
+		if endpoint.TTL > 0 {
+			err = h.store.Put(h.ctx, serviceURLKey, []byte(fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)), endpoint.TTL)
+		} else {
+			err = h.store.Put(h.ctx, serviceURLKey, []byte(fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)))
+		}
 		if err != nil {
 			return err
 		}
 
-		// 设置权重
+		// 设置权重（也使用 TTL）
 		if endpoint.Weight > 0 {
 			weightKey := constructor.GenServiceWeightKey(currentMaxServicesURLIndex, endpoint)
-			err = h.store.Put(h.ctx, weightKey, []byte(strconv.Itoa(int(endpoint.Weight))))
+			if endpoint.TTL > 0 {
+				err = h.store.Put(h.ctx, weightKey, []byte(strconv.Itoa(int(endpoint.Weight))), endpoint.TTL)
+			} else {
+				err = h.store.Put(h.ctx, weightKey, []byte(strconv.Itoa(int(endpoint.Weight))))
+			}
 			if err != nil {
 				return err
 			}
-		}
-
-		serviceHealthcheckPathKey := constructor.GenServiceHealthCheckPathKey(endpoint)
-		healthcheckPath := opt.HealthCheckPath
-
-		err = h.store.Put(h.ctx, serviceHealthcheckPathKey, []byte(healthcheckPath))
-		if err != nil {
-			return err
 		}
 	}
 
@@ -393,4 +404,56 @@ func (h *handler) Close() error {
 		return h.store.Close()
 	}
 	return nil
+}
+
+// Refresh 续期服务实例配置的 TTL
+func (h *handler) Refresh(endpoint gateway.Endpoint) error {
+	if endpoint.TTL == 0 {
+		return nil // 无 TTL，无需刷新
+	}
+
+	constructor := NewConstructor()
+
+	// 1. 查找当前实例索引
+	loadbalancerServiceKeyPrefix := constructor.GenServiceLoadbalancerServiceKeyPrefix(endpoint)
+	loadbalancerServerMap, err := h.store.GetByPrefix(h.ctx, loadbalancerServiceKeyPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to find instance: %w", err)
+	}
+
+	serverURL := fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)
+	instanceIndex := -1
+	reg, err := regexp.Compile("^" + loadbalancerServiceKeyPrefix + "[0-9]+/url$")
+	if err != nil {
+		return err
+	}
+
+	for k, v := range loadbalancerServerMap {
+		if reg.MatchString(k) {
+			if serverURL == string(v) || serverURL+"/" == string(v) {
+				tmp := strings.Replace(k, loadbalancerServiceKeyPrefix, "", 1)
+				tmpSli := strings.Split(tmp, "/")
+				if len(tmpSli) > 0 {
+					instanceIndex, _ = strconv.Atoi(tmpSli[0])
+					break
+				}
+			}
+		}
+	}
+
+	if instanceIndex < 0 {
+		return fmt.Errorf("instance not found, need re-register")
+	}
+
+	// 2. 收集需要续期的所有 key
+	keys := []string{
+		constructor.GenServiceUrlKey(instanceIndex, endpoint),
+	}
+
+	if endpoint.Weight > 0 {
+		keys = append(keys, constructor.GenServiceWeightKey(instanceIndex, endpoint))
+	}
+
+	// 3. 批量续期，确保所有 key 的 TTL 同步
+	return h.store.BatchKeepAlive(h.ctx, keys, endpoint.TTL)
 }

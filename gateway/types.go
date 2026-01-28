@@ -31,7 +31,7 @@ type Endpoint struct {
 	Ip         string            // 地址
 	Port       uint16            // 端口
 	Extra      map[string]string // 额外元数据
-	TTL        uint32            // TTL-Seconds 生存时间
+	TTL        uint32            // 生存时间（单位：秒）。0 表示永不过期。
 	Weight     uint16            // 实例权重，为0时不设置
 }
 

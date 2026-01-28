@@ -9,7 +9,9 @@ import (
 )
 
 type etcdStore struct {
-	client *clientv3.Client
+	client  *clientv3.Client
+	leaseID clientv3.LeaseID // 全局 Lease ID，所有带 TTL 的 key 共享
+	ctx     context.Context
 }
 
 type EtcdConfig struct {
@@ -56,13 +58,26 @@ func NewEtcdStore(ctx context.Context, cfg EtcdConfig) (KvStore, error) {
 
 	return &etcdStore{
 		client: client,
+		ctx:    ctx,
 	}, nil
 }
 
-func (s *etcdStore) Put(ctx context.Context, key string, value []byte) error {
-	_, err := s.client.Put(ctx, key, string(value))
-	if err != nil {
-		return fmt.Errorf("etcd put error: %w", err)
+func (s *etcdStore) Put(ctx context.Context, key string, value []byte, expired ...uint32) error {
+	// 如果有 TTL，需要创建或使用 Lease
+	if len(expired) > 0 && expired[0] > 0 {
+		// 确保 Lease 存在
+		if err := s.ensureLease(ctx, int64(expired[0])); err != nil {
+			return fmt.Errorf("failed to ensure lease: %w", err)
+		}
+		_, err := s.client.Put(ctx, key, string(value), clientv3.WithLease(s.leaseID))
+		if err != nil {
+			return fmt.Errorf("etcd put error: %w", err)
+		}
+	} else {
+		_, err := s.client.Put(ctx, key, string(value))
+		if err != nil {
+			return fmt.Errorf("etcd put error: %w", err)
+		}
 	}
 	return nil
 }
@@ -108,5 +123,60 @@ func (s *etcdStore) DeleteByPrefix(ctx context.Context, prefix string) error {
 }
 
 func (s *etcdStore) Close() error {
+	// Revoke lease if exists
+	if s.leaseID != 0 {
+		s.client.Revoke(s.ctx, s.leaseID)
+	}
 	return s.client.Close()
+}
+
+// ensureLease 确保 Lease 存在，如果不存在则创建
+func (s *etcdStore) ensureLease(ctx context.Context, ttl int64) error {
+	if s.leaseID != 0 {
+		// Lease 已存在，无需重新创建
+		return nil
+	}
+
+	// 创建 Lease 并启动自动续期
+	leaseResp, err := s.client.Grant(ctx, ttl)
+	if err != nil {
+		return fmt.Errorf("failed to create lease: %w", err)
+	}
+
+	s.leaseID = leaseResp.ID
+
+	// 启动自动 KeepAlive
+	ch, err := s.client.KeepAlive(ctx, s.leaseID)
+	if err != nil {
+		return fmt.Errorf("failed to start keep alive: %w", err)
+	}
+
+	// 后台消费 KeepAlive 响应，防止管道堵塞
+	go func() {
+		for range ch {
+			// 消费响应，防止堆积
+		}
+	}()
+
+	return nil
+}
+
+func (s *etcdStore) KeepAlive(ctx context.Context, key string, ttl ...uint32) error {
+	// Etcd 使用 Lease 续期，不需要 key 参数
+	if s.leaseID == 0 {
+		return fmt.Errorf("no lease to keep alive")
+	}
+
+	// 手动续期一次
+	_, err := s.client.KeepAliveOnce(ctx, s.leaseID)
+	if err != nil {
+		return fmt.Errorf("failed to keep alive: %w", err)
+	}
+	return nil
+}
+
+func (s *etcdStore) BatchKeepAlive(ctx context.Context, keys []string, ttl ...uint32) error {
+	// Etcd 所有 key 关联同一个 Lease
+	// 只需要刷新一次 Lease，所有 key 同时续期
+	return s.KeepAlive(ctx, "", ttl...)
 }

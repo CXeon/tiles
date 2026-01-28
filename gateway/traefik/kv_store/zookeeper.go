@@ -58,7 +58,7 @@ func NewZookeeperStore(ctx context.Context, cfg ZookeeperConfig) (KvStore, error
 	}, nil
 }
 
-func (s *zkStore) Put(ctx context.Context, key string, value []byte) error {
+func (s *zkStore) Put(ctx context.Context, key string, value []byte, expired ...uint32) error {
 	key = normalizePath(key)
 
 	// Ensure parent nodes exist
@@ -66,8 +66,16 @@ func (s *zkStore) Put(ctx context.Context, key string, value []byte) error {
 		return err
 	}
 
+	// 判断是否需要 TTL（使用临时节点）
+	var flags int32
+	if len(expired) > 0 && expired[0] > 0 {
+		// ZooKeeper 临时节点：客户端断开连接时自动删除
+		// 注意：ZooKeeper 不支持精确 TTL，只能通过 Session 超时来控制
+		flags = zk.FlagEphemeral
+	}
+
 	// Try to create first
-	_, err := s.conn.Create(key, value, 0, zk.WorldACL(zk.PermAll))
+	_, err := s.conn.Create(key, value, flags, zk.WorldACL(zk.PermAll))
 	if err == zk.ErrNodeExists {
 		// Node exists, update it
 		_, err = s.conn.Set(key, value, -1) // -1 means any version
@@ -146,6 +154,19 @@ func (s *zkStore) DeleteByPrefix(ctx context.Context, prefix string) error {
 
 func (s *zkStore) Close() error {
 	s.conn.Close()
+	return nil
+}
+
+func (s *zkStore) KeepAlive(ctx context.Context, key string, ttl ...uint32) error {
+	// ZooKeeper 临时节点自动维护，无需手动续约
+	// 只要连接存活，所有临时节点就存活
+	// 这里为 No-op
+	return nil
+}
+
+func (s *zkStore) BatchKeepAlive(ctx context.Context, keys []string, ttl ...uint32) error {
+	// ZooKeeper 临时节点自动维护，无需手动续约
+	// No-op
 	return nil
 }
 

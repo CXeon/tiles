@@ -2,6 +2,7 @@ package traefik
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/CXeon/tiles/gateway"
@@ -13,7 +14,7 @@ type mockKvStore struct {
 	mock.Mock
 }
 
-func (m *mockKvStore) Put(ctx context.Context, key string, value []byte) error {
+func (m *mockKvStore) Put(ctx context.Context, key string, value []byte, expired ...uint32) error {
 	args := m.Called(key, value)
 	return args.Error(0)
 }
@@ -38,6 +39,16 @@ func (m *mockKvStore) DeleteByPrefix(ctx context.Context, prefix string) error {
 	return args.Error(0)
 }
 
+func (m *mockKvStore) KeepAlive(ctx context.Context, key string, ttl ...uint32) error {
+	args := m.Called(key)
+	return args.Error(0)
+}
+
+func (m *mockKvStore) BatchKeepAlive(ctx context.Context, keys []string, ttl ...uint32) error {
+	args := m.Called(keys)
+	return args.Error(0)
+}
+
 func (m *mockKvStore) Close() error {
 	args := m.Called()
 	return args.Error(0)
@@ -51,7 +62,7 @@ func TestTraefikClient_Register(t *testing.T) {
 	}
 	client := &traefikClient{
 		handler:     h,
-		middlewares: []string{"ForwardAuth"},
+		middlewares: []string{DefaultAuthMiddleware},
 	}
 
 	endpoint := &gateway.Endpoint{
@@ -84,9 +95,9 @@ func TestTraefikClient_Register(t *testing.T) {
 	normalizedEndpoint := *endpoint
 	normalizedEndpoint.Protocol = gateway.ProtocolTypeHttp
 
-	protectedRule := "PathPrefix(`/testco/testprj/testsvc/`) && Header(`X-Env`, `dev`) && Header(`X-Cluster`, `china`) && Header(`X-Color`, `blue`)"
+	protectedRule := fmt.Sprintf("PathPrefix(`/testco/testprj/testsvc/`) && Header(`%s`, `dev`) && Header(`%s`, `china`) && Header(`%s`, `blue`)", HeaderKeyEnv, HeaderKeyCluster, HeaderKeyColor)
 	mockStore.On("Put", constructor.GenRouterRuleKey(normalizedEndpoint, ""), []byte(protectedRule)).Return(nil)
-	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, normalizedEndpoint, ""), []byte("ForwardAuth")).Return(nil)
+	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, normalizedEndpoint, ""), []byte(DefaultAuthMiddleware)).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(0, normalizedEndpoint, ""), []byte("web")).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(1, normalizedEndpoint, ""), []byte("websecure")).Return(nil)
 	// Service Name 应该是逻辑服务标识，而非 Instance ID
@@ -110,7 +121,7 @@ func TestTraefikClient_ExcludeAuthPaths(t *testing.T) {
 	}
 	client := &traefikClient{
 		handler:          h,
-		middlewares:      []string{"ForwardAuth"},
+		middlewares:      []string{DefaultAuthMiddleware},
 		excludeAuthPaths: []string{"/testco/testprj/svc/public", "/testco/testprj/svc/health"},
 	}
 
@@ -133,9 +144,9 @@ func TestTraefikClient_ExcludeAuthPaths(t *testing.T) {
 	mockStore.On("Put", mock.Anything, mock.Anything).Return(nil)
 
 	// 1. 注册受保护路由 (默认)
-	protectedRule := "PathPrefix(`/testco/testprj/svc/`) && Header(`X-Env`, `dev`) && Header(`X-Cluster`, `china`) && Header(`X-Color`, `blue`)"
+	protectedRule := fmt.Sprintf("PathPrefix(`/testco/testprj/svc/`) && Header(`%s`, `dev`) && Header(`%s`, `china`) && Header(`%s`, `blue`)", HeaderKeyEnv, HeaderKeyCluster, HeaderKeyColor)
 	mockStore.On("Put", constructor.GenRouterRuleKey(*endpoint, ""), []byte(protectedRule)).Return(nil)
-	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, *endpoint, ""), []byte("ForwardAuth")).Return(nil)
+	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, *endpoint, ""), []byte(DefaultAuthMiddleware)).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(0, *endpoint, ""), []byte("web")).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(1, *endpoint, ""), []byte("websecure")).Return(nil)
 	// Service Name 应该是逻辑服务标识
@@ -144,7 +155,7 @@ func TestTraefikClient_ExcludeAuthPaths(t *testing.T) {
 
 	// 2. 注册公开路由
 	// 注意拼接后的路径：/testco/testprj/svc/public 和 /testco/testprj/svc/health
-	publicRule := "PathPrefix(`/testco/testprj/svc/public`, `/testco/testprj/svc/health`) && Header(`X-Env`, `dev`) && Header(`X-Cluster`, `china`) && Header(`X-Color`, `blue`)"
+	publicRule := fmt.Sprintf("PathPrefix(`/testco/testprj/svc/public`, `/testco/testprj/svc/health`) && Header(`%s`, `dev`) && Header(`%s`, `china`) && Header(`%s`, `blue`)", HeaderKeyEnv, HeaderKeyCluster, HeaderKeyColor)
 	mockStore.On("Put", constructor.GenRouterRuleKey(*endpoint, "public"), []byte(publicRule)).Return(nil)
 	mockStore.On("Put", constructor.GenRouterPriorityKey(*endpoint, "public"), []byte("1000")).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(0, *endpoint, "public"), []byte("web")).Return(nil)
@@ -165,7 +176,7 @@ func TestTraefikClient_Deregister(t *testing.T) {
 	}
 	client := &traefikClient{
 		handler:     h,
-		middlewares: []string{"ForwardAuth"},
+		middlewares: []string{DefaultAuthMiddleware},
 	}
 
 	endpoint := &gateway.Endpoint{
@@ -213,7 +224,7 @@ func TestTraefikClient_RegisterWithOptions(t *testing.T) {
 	}
 	client := &traefikClient{
 		handler:         h,
-		middlewares:     []string{"ForwardAuth"},
+		middlewares:     []string{DefaultAuthMiddleware},
 		healthCheckPath: "/ping",
 	}
 
@@ -235,7 +246,7 @@ func TestTraefikClient_RegisterWithOptions(t *testing.T) {
 	// 预期行为：
 	// 1. 设置默认中间件 ForwardAuth（注意：client直接构造，没有从 Extra 中读取）
 	mockStore.On("Put", constructor.GenRouterRuleKey(*endpoint, ""), mock.Anything).Return(nil)
-	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, *endpoint, ""), []byte("ForwardAuth")).Return(nil)
+	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, *endpoint, ""), []byte(DefaultAuthMiddleware)).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(0, *endpoint, ""), []byte("web")).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(1, *endpoint, ""), []byte("websecure")).Return(nil)
 	// Service Name 应该是逻辑服务标识
@@ -307,23 +318,23 @@ func TestNormalizeEndpoint(t *testing.T) {
 func TestBuildHandlerOptions(t *testing.T) {
 	t.Run("with complete paths", func(t *testing.T) {
 		client := &traefikClient{
-			middlewares:      []string{"ForwardAuth", "RateLimit"},
+			middlewares:      []string{DefaultAuthMiddleware, "RateLimit"},
 			excludeAuthPaths: []string{"/company/project/service/public", "/company/project/service/health"},
 			healthCheckPath:  "/ping",
 		}
 		opts := client.buildHandlerOptions()
-		assert.Equal(t, []string{"ForwardAuth", "RateLimit"}, opts.Middlewares)
+		assert.Equal(t, []string{DefaultAuthMiddleware, "RateLimit"}, opts.Middlewares)
 		assert.Equal(t, []string{"/company/project/service/public", "/company/project/service/health"}, opts.ExcludeAuthPaths)
 		assert.Equal(t, "/ping", opts.HealthCheckPath)
 	})
 
 	t.Run("with empty paths", func(t *testing.T) {
 		client := &traefikClient{
-			middlewares:     []string{"ForwardAuth"},
+			middlewares:     []string{DefaultAuthMiddleware},
 			healthCheckPath: "/health",
 		}
 		opts := client.buildHandlerOptions()
-		assert.Equal(t, []string{"ForwardAuth"}, opts.Middlewares)
+		assert.Equal(t, []string{DefaultAuthMiddleware}, opts.Middlewares)
 		assert.Empty(t, opts.ExcludeAuthPaths)
 		assert.Equal(t, "/health", opts.HealthCheckPath)
 	})

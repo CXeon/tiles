@@ -67,8 +67,12 @@ func NewRedisStore(ctx context.Context, config RedisConfig) (KvStore, error) {
 	}, nil
 }
 
-func (s *redisStore) Put(ctx context.Context, key string, value []byte) error {
-	return s.client.Set(ctx, key, value, 0).Err()
+func (s *redisStore) Put(ctx context.Context, key string, value []byte, expired ...uint32) error {
+	var expiration time.Duration
+	if len(expired) > 0 && expired[0] > 0 {
+		expiration = time.Duration(expired[0]) * time.Second
+	}
+	return s.client.Set(ctx, key, value, expiration).Err()
 }
 
 func (s *redisStore) Get(ctx context.Context, key string) ([]byte, error) {
@@ -171,4 +175,38 @@ func (s *redisStore) DeleteByPrefix(ctx context.Context, prefix string) error {
 
 func (s *redisStore) Close() error {
 	return s.client.Close()
+}
+
+func (s *redisStore) KeepAlive(ctx context.Context, key string, ttl ...uint32) error {
+	var duration time.Duration
+	if len(ttl) > 0 && ttl[0] > 0 {
+		duration = time.Duration(ttl[0]) * time.Second
+	} else {
+		// 默认 TTL 15 秒
+		duration = DefaultTTLSeconds * time.Second
+	}
+	return s.client.Expire(ctx, key, duration).Err()
+}
+
+func (s *redisStore) BatchKeepAlive(ctx context.Context, keys []string, ttl ...uint32) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	var duration time.Duration
+	if len(ttl) > 0 && ttl[0] > 0 {
+		duration = time.Duration(ttl[0]) * time.Second
+	} else {
+		// 默认 TTL 15 秒
+		duration = DefaultTTLSeconds * time.Second
+	}
+
+	// 使用 Pipeline 批量操作，确保原子性和时间一致性
+	// 所有 EXPIRE 命令在极短时间内执行，几乎同时设置过期时间
+	pipe := s.client.Pipeline()
+	for _, key := range keys {
+		pipe.Expire(ctx, key, duration)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
 }
