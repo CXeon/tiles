@@ -2,6 +2,6 @@
 .vscode
 .DS_Store
 .qoder
-openspec/
+openspec
 AGENTS.md
 QODER.md
