@@ -1,8 +1,6 @@
 ---
-name: OpenSpec: Archive
+type: project_command
 description: Archive a deployed OpenSpec change and update specs.
-category: OpenSpec
-tags: [openspec, archive]
 ---
 <!-- OPENSPEC:START -->
 **Guardrails**
