@@ -57,7 +57,6 @@ func (m *mockKvStore) Close() error {
 func TestTraefikClient_Register(t *testing.T) {
 	mockStore := new(mockKvStore)
 	h := &handler{
-		ctx:   context.Background(),
 		store: mockStore,
 	}
 	client := &traefikClient{
@@ -116,7 +115,6 @@ func TestTraefikClient_Register(t *testing.T) {
 func TestTraefikClient_ExcludeAuthPaths(t *testing.T) {
 	mockStore := new(mockKvStore)
 	h := &handler{
-		ctx:   context.Background(),
 		store: mockStore,
 	}
 	client := &traefikClient{
@@ -171,7 +169,6 @@ func TestTraefikClient_ExcludeAuthPaths(t *testing.T) {
 func TestTraefikClient_Deregister(t *testing.T) {
 	mockStore := new(mockKvStore)
 	h := &handler{
-		ctx:   context.Background(),
 		store: mockStore,
 	}
 	client := &traefikClient{
@@ -219,7 +216,6 @@ func TestTraefikClient_Deregister(t *testing.T) {
 func TestTraefikClient_RegisterWithOptions(t *testing.T) {
 	mockStore := new(mockKvStore)
 	h := &handler{
-		ctx:   context.Background(),
 		store: mockStore,
 	}
 	client := &traefikClient{

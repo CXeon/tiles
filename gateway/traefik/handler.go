@@ -19,21 +19,16 @@ type HandlerOptions struct {
 }
 
 type handler struct {
-	ctx   context.Context
 	store kv_store.KvStore
 }
 
 func NewHandler(ctx context.Context, provider *Provider) (*handler, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	var store kv_store.KvStore
 	var err error
 
 	switch provider.KVType {
 	case ProviderTypeRedis:
-		store, err = kv_store.NewRedisStore(ctx, kv_store.RedisConfig{
+		store, err = kv_store.NewRedisStore(kv_store.RedisConfig{
 			Endpoints:      provider.Endpoints,
 			Password:       provider.Password,
 			DB:             provider.DBIndex,
@@ -44,7 +39,7 @@ func NewHandler(ctx context.Context, provider *Provider) (*handler, error) {
 			WriteTimeout:   provider.WriteTimeout,
 		})
 	case ProviderTypeConsul:
-		store, err = kv_store.NewConsulStore(ctx, kv_store.ConsulConfig{
+		store, err = kv_store.NewConsulStore(kv_store.ConsulConfig{
 			Endpoints:      provider.Endpoints,
 			Username:       provider.Username,
 			Password:       provider.Password,
@@ -52,7 +47,7 @@ func NewHandler(ctx context.Context, provider *Provider) (*handler, error) {
 			ReadTimeout:    provider.ReadTimeout,
 		})
 	case ProviderTypeEtcd:
-		store, err = kv_store.NewEtcdStore(ctx, kv_store.EtcdConfig{
+		store, err = kv_store.NewEtcdStore(kv_store.EtcdConfig{
 			Endpoints:      provider.Endpoints,
 			Username:       provider.Username,
 			Password:       provider.Password,
@@ -60,7 +55,7 @@ func NewHandler(ctx context.Context, provider *Provider) (*handler, error) {
 			ReadTimeout:    provider.ReadTimeout,
 		})
 	case ProviderTypeZooKeeper:
-		store, err = kv_store.NewZookeeperStore(ctx, kv_store.ZookeeperConfig{
+		store, err = kv_store.NewZookeeperStore(kv_store.ZookeeperConfig{
 			Endpoints:      provider.Endpoints,
 			ConnectTimeout: provider.ConnectTimeout,
 			SessionTimeout: provider.ReadTimeout,
@@ -74,12 +69,11 @@ func NewHandler(ctx context.Context, provider *Provider) (*handler, error) {
 	}
 
 	return &handler{
-		ctx:   ctx,
 		store: store,
 	}, nil
 }
 
-func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) error {
+func (h *handler) Register(ctx context.Context, endpoint gateway.Endpoint, opts ...HandlerOptions) error {
 	var opt HandlerOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -92,7 +86,7 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 	basePath := fmt.Sprintf("/%s/%s/%s/", endpoint.Company, endpoint.Project, endpoint.Service)
 	protectedRule := fmt.Sprintf("PathPrefix(`%s`) && Header(`%s`, `%s`) && Header(`%s`, `%s`) && Header(`%s`, `%s`)",
 		basePath, HeaderKeyEnv, endpoint.Env, HeaderKeyCluster, endpoint.Cluster, HeaderKeyColor, endpoint.Color)
-	err := h.upsertRouter(endpoint, "", protectedRule, opt.Middlewares, 0)
+	err := h.upsertRouter(ctx, endpoint, "", protectedRule, opt.Middlewares, 0)
 	if err != nil {
 		return err
 	}
@@ -116,7 +110,7 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 		}
 
 		// 设置更高的优先级
-		err = h.upsertRouter(endpoint, "public", publicRule, publicMiddlewares, 1000)
+		err = h.upsertRouter(ctx, endpoint, "public", publicRule, publicMiddlewares, 1000)
 		if err != nil {
 			return err
 		}
@@ -125,7 +119,7 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 	// 3. 设置 HealthCheck Path（公共配置，直接 Put）
 	if opt.HealthCheckPath != "" {
 		serviceHealthcheckPathKey := constructor.GenServiceHealthCheckPathKey(endpoint)
-		err := h.store.Put(h.ctx, serviceHealthcheckPathKey, []byte(opt.HealthCheckPath))
+		err := h.store.Put(ctx, serviceHealthcheckPathKey, []byte(opt.HealthCheckPath))
 		if err != nil {
 			return err
 		}
@@ -133,7 +127,7 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 
 	// 4. 检查并设置service url
 	loadbalancerServiceKeyPrefix := constructor.GenServiceLoadbalancerServiceKeyPrefix(endpoint)
-	loadbalancerServerMap, err := h.store.GetByPrefix(h.ctx, loadbalancerServiceKeyPrefix)
+	loadbalancerServerMap, err := h.store.GetByPrefix(ctx, loadbalancerServiceKeyPrefix)
 	if err != nil {
 		return err
 	}
@@ -171,9 +165,9 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 
 		// 使用 TTL（如果 endpoint.TTL > 0）
 		if endpoint.TTL > 0 {
-			err = h.store.Put(h.ctx, serviceURLKey, []byte(fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)), endpoint.TTL)
+			err = h.store.Put(ctx, serviceURLKey, []byte(fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)), endpoint.TTL)
 		} else {
-			err = h.store.Put(h.ctx, serviceURLKey, []byte(fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)))
+			err = h.store.Put(ctx, serviceURLKey, []byte(fmt.Sprintf("%s://%s:%d", endpoint.Protocol, endpoint.Ip, endpoint.Port)))
 		}
 		if err != nil {
 			return err
@@ -183,9 +177,9 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 		if endpoint.Weight > 0 {
 			weightKey := constructor.GenServiceWeightKey(currentMaxServicesURLIndex, endpoint)
 			if endpoint.TTL > 0 {
-				err = h.store.Put(h.ctx, weightKey, []byte(strconv.Itoa(int(endpoint.Weight))), endpoint.TTL)
+				err = h.store.Put(ctx, weightKey, []byte(strconv.Itoa(int(endpoint.Weight))), endpoint.TTL)
 			} else {
-				err = h.store.Put(h.ctx, weightKey, []byte(strconv.Itoa(int(endpoint.Weight))))
+				err = h.store.Put(ctx, weightKey, []byte(strconv.Itoa(int(endpoint.Weight))))
 			}
 			if err != nil {
 				return err
@@ -197,12 +191,12 @@ func (h *handler) Register(endpoint gateway.Endpoint, opts ...HandlerOptions) er
 }
 
 // upsertRouter 封装路由创建逻辑
-func (h *handler) upsertRouter(endpoint gateway.Endpoint, suffix string, rule string, middlewares []string, priority int) error {
+func (h *handler) upsertRouter(ctx context.Context, endpoint gateway.Endpoint, suffix string, rule string, middlewares []string, priority int) error {
 	constructor := NewConstructor()
 
 	// 1. 设置 Rule
 	ruleKey := constructor.GenRouterRuleKey(endpoint, suffix)
-	err := h.store.Put(h.ctx, ruleKey, []byte(rule))
+	err := h.store.Put(ctx, ruleKey, []byte(rule))
 	if err != nil {
 		return err
 	}
@@ -211,7 +205,7 @@ func (h *handler) upsertRouter(endpoint gateway.Endpoint, suffix string, rule st
 	if len(middlewares) > 0 {
 		for i, m := range middlewares {
 			mKey := constructor.GenRouterMiddlewareKey(i, endpoint, suffix)
-			err = h.store.Put(h.ctx, mKey, []byte(strings.TrimSpace(m)))
+			err = h.store.Put(ctx, mKey, []byte(strings.TrimSpace(m)))
 			if err != nil {
 				return err
 			}
@@ -221,7 +215,7 @@ func (h *handler) upsertRouter(endpoint gateway.Endpoint, suffix string, rule st
 	// 3. 设置 Entrypoints (固定 web 和 websecure)
 	entrypoints := []string{"web", "websecure"}
 	for i, ep := range entrypoints {
-		err = h.store.Put(h.ctx, constructor.GenRouterEntrypointKey(i, endpoint, suffix), []byte(ep))
+		err = h.store.Put(ctx, constructor.GenRouterEntrypointKey(i, endpoint, suffix), []byte(ep))
 		if err != nil {
 			return err
 		}
@@ -230,7 +224,7 @@ func (h *handler) upsertRouter(endpoint gateway.Endpoint, suffix string, rule st
 	// 4. 设置 Service 关联（使用服务逻辑标识，而非实例 ID）
 	routerServiceKey := constructor.GenRouterServiceKey(endpoint, suffix)
 	serviceName := constructor.GenServiceName(endpoint)
-	err = h.store.Put(h.ctx, routerServiceKey, []byte(serviceName))
+	err = h.store.Put(ctx, routerServiceKey, []byte(serviceName))
 	if err != nil {
 		return err
 	}
@@ -238,7 +232,7 @@ func (h *handler) upsertRouter(endpoint gateway.Endpoint, suffix string, rule st
 	// 5. 设置 Priority
 	if priority > 0 {
 		priorityKey := constructor.GenRouterPriorityKey(endpoint, suffix)
-		err = h.store.Put(h.ctx, priorityKey, []byte(strconv.Itoa(priority)))
+		err = h.store.Put(ctx, priorityKey, []byte(strconv.Itoa(priority)))
 		if err != nil {
 			return err
 		}
@@ -248,12 +242,12 @@ func (h *handler) upsertRouter(endpoint gateway.Endpoint, suffix string, rule st
 }
 
 // Deregister 注销服务（完全清除所有相关配置）
-func (h *handler) Deregister(endpoint gateway.Endpoint, opts ...HandlerOptions) error {
+func (h *handler) Deregister(ctx context.Context, endpoint gateway.Endpoint, opts ...HandlerOptions) error {
 	constructor := NewConstructor()
 
 	// 1. 查找所有服务实例
 	loadbalancerServiceKeyPrefix := constructor.GenServiceLoadbalancerServiceKeyPrefix(endpoint)
-	loadbalancerServerMap, err := h.store.GetByPrefix(h.ctx, loadbalancerServiceKeyPrefix)
+	loadbalancerServerMap, err := h.store.GetByPrefix(ctx, loadbalancerServiceKeyPrefix)
 	if err != nil {
 		if errors.Is(err, kv_store.ErrConnectionFailed) {
 			return fmt.Errorf("kv store connection failed: %w", err)
@@ -289,7 +283,7 @@ func (h *handler) Deregister(endpoint gateway.Endpoint, opts ...HandlerOptions) 
 
 	// 删除当前实例的配置
 	instancePrefix := constructor.GenServiceInstancePrefix(instanceIndex, endpoint)
-	if err := h.store.DeleteByPrefix(h.ctx, instancePrefix); err != nil {
+	if err := h.store.DeleteByPrefix(ctx, instancePrefix); err != nil {
 		if errors.Is(err, kv_store.ErrConnectionFailed) {
 			return fmt.Errorf("kv store connection failed: %w", err)
 		}
@@ -313,7 +307,7 @@ func (h *handler) Deregister(endpoint gateway.Endpoint, opts ...HandlerOptions) 
 	if remainingInstances == 0 {
 		// 删除所有 router 配置
 		routerPrefix := constructor.GenRouterPrefixAll(endpoint)
-		if err := h.store.DeleteByPrefix(h.ctx, routerPrefix); err != nil {
+		if err := h.store.DeleteByPrefix(ctx, routerPrefix); err != nil {
 			if errors.Is(err, kv_store.ErrConnectionFailed) {
 				return fmt.Errorf("kv store connection failed: %w", err)
 			}
@@ -324,7 +318,7 @@ func (h *handler) Deregister(endpoint gateway.Endpoint, opts ...HandlerOptions) 
 
 		// 删除整个 service 配置
 		servicePrefix := constructor.GenServicePrefix(endpoint)
-		if err := h.store.DeleteByPrefix(h.ctx, servicePrefix); err != nil {
+		if err := h.store.DeleteByPrefix(ctx, servicePrefix); err != nil {
 			if errors.Is(err, kv_store.ErrConnectionFailed) {
 				return fmt.Errorf("kv store connection failed: %w", err)
 			}
@@ -338,12 +332,12 @@ func (h *handler) Deregister(endpoint gateway.Endpoint, opts ...HandlerOptions) 
 }
 
 // Update 更新服务配置（先删除旧配置，再重新注册）
-func (h *handler) Update(endpoint gateway.Endpoint, opts ...HandlerOptions) error {
+func (h *handler) Update(ctx context.Context, endpoint gateway.Endpoint, opts ...HandlerOptions) error {
 	constructor := NewConstructor()
 
 	// 1. 删除所有 router 配置（protected + public）
 	routerPrefix := constructor.GenRouterPrefixAll(endpoint)
-	if err := h.store.DeleteByPrefix(h.ctx, routerPrefix); err != nil {
+	if err := h.store.DeleteByPrefix(ctx, routerPrefix); err != nil {
 		if errors.Is(err, kv_store.ErrConnectionFailed) {
 			return fmt.Errorf("kv store connection failed: %w", err)
 		}
@@ -354,7 +348,7 @@ func (h *handler) Update(endpoint gateway.Endpoint, opts ...HandlerOptions) erro
 
 	// 2. 查找并删除当前实例的 service 配置
 	loadbalancerServiceKeyPrefix := constructor.GenServiceLoadbalancerServiceKeyPrefix(endpoint)
-	loadbalancerServerMap, err := h.store.GetByPrefix(h.ctx, loadbalancerServiceKeyPrefix)
+	loadbalancerServerMap, err := h.store.GetByPrefix(ctx, loadbalancerServiceKeyPrefix)
 	if err != nil {
 		if errors.Is(err, kv_store.ErrConnectionFailed) {
 			return fmt.Errorf("kv store connection failed: %w", err)
@@ -385,7 +379,7 @@ func (h *handler) Update(endpoint gateway.Endpoint, opts ...HandlerOptions) erro
 	// 如果找到了当前实例，删除它的配置
 	if instanceIndex >= 0 {
 		instancePrefix := constructor.GenServiceInstancePrefix(instanceIndex, endpoint)
-		if err := h.store.DeleteByPrefix(h.ctx, instancePrefix); err != nil {
+		if err := h.store.DeleteByPrefix(ctx, instancePrefix); err != nil {
 			if errors.Is(err, kv_store.ErrConnectionFailed) {
 				return fmt.Errorf("kv store connection failed: %w", err)
 			}
@@ -396,7 +390,7 @@ func (h *handler) Update(endpoint gateway.Endpoint, opts ...HandlerOptions) erro
 	}
 
 	// 3. 调用 Register 重新注册
-	return h.Register(endpoint, opts...)
+	return h.Register(ctx, endpoint, opts...)
 }
 
 func (h *handler) Close() error {
@@ -407,7 +401,7 @@ func (h *handler) Close() error {
 }
 
 // Refresh 续期服务实例配置的 TTL
-func (h *handler) Refresh(endpoint gateway.Endpoint) error {
+func (h *handler) Refresh(ctx context.Context, endpoint gateway.Endpoint) error {
 	if endpoint.TTL == 0 {
 		return nil // 无 TTL，无需刷新
 	}
@@ -416,7 +410,7 @@ func (h *handler) Refresh(endpoint gateway.Endpoint) error {
 
 	// 1. 查找当前实例索引
 	loadbalancerServiceKeyPrefix := constructor.GenServiceLoadbalancerServiceKeyPrefix(endpoint)
-	loadbalancerServerMap, err := h.store.GetByPrefix(h.ctx, loadbalancerServiceKeyPrefix)
+	loadbalancerServerMap, err := h.store.GetByPrefix(ctx, loadbalancerServiceKeyPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to find instance: %w", err)
 	}
@@ -455,5 +449,5 @@ func (h *handler) Refresh(endpoint gateway.Endpoint) error {
 	}
 
 	// 3. 批量续期，确保所有 key 的 TTL 同步
-	return h.store.BatchKeepAlive(h.ctx, keys, endpoint.TTL)
+	return h.store.BatchKeepAlive(ctx, keys, endpoint.TTL)
 }

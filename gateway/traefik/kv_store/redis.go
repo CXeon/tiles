@@ -23,10 +23,8 @@ type RedisConfig struct {
 	WriteTimeout   time.Duration // 写入超时时间，单位：time.Duration（如 3*time.Second）
 }
 
-func NewRedisStore(ctx context.Context, config RedisConfig) (KvStore, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+func NewRedisStore(config RedisConfig) (KvStore, error) {
+	ctx := context.Background()
 
 	// Set default timeouts if not provided
 	if config.ConnectTimeout == 0 {

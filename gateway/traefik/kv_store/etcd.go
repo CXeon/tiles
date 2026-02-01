@@ -11,7 +11,6 @@ import (
 type etcdStore struct {
 	client  *clientv3.Client
 	leaseID clientv3.LeaseID // 全局 Lease ID，所有带 TTL 的 key 共享
-	ctx     context.Context
 }
 
 type EtcdConfig struct {
@@ -22,10 +21,8 @@ type EtcdConfig struct {
 	ReadTimeout    time.Duration // 读取超时时间，单位：time.Duration（如 10*time.Second）
 }
 
-func NewEtcdStore(ctx context.Context, cfg EtcdConfig) (KvStore, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+func NewEtcdStore(cfg EtcdConfig) (KvStore, error) {
+	ctx := context.Background()
 
 	// Set default timeouts
 	if cfg.ConnectTimeout == 0 {
@@ -58,7 +55,6 @@ func NewEtcdStore(ctx context.Context, cfg EtcdConfig) (KvStore, error) {
 
 	return &etcdStore{
 		client: client,
-		ctx:    ctx,
 	}, nil
 }
 
@@ -125,7 +121,7 @@ func (s *etcdStore) DeleteByPrefix(ctx context.Context, prefix string) error {
 func (s *etcdStore) Close() error {
 	// Revoke lease if exists
 	if s.leaseID != 0 {
-		s.client.Revoke(s.ctx, s.leaseID)
+		s.client.Revoke(context.Background(), s.leaseID)
 	}
 	return s.client.Close()
 }

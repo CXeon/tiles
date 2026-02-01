@@ -11,7 +11,6 @@ import (
 type consulStore struct {
 	client    *api.Client
 	sessionID string // 全局 Session ID，所有带 TTL 的 key 共享
-	ctx       context.Context
 }
 
 type ConsulConfig struct {
@@ -22,11 +21,7 @@ type ConsulConfig struct {
 	ReadTimeout    time.Duration // 读取超时时间，单位：time.Duration（如 10*time.Second）
 }
 
-func NewConsulStore(ctx context.Context, cfg ConsulConfig) (KvStore, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
+func NewConsulStore(cfg ConsulConfig) (KvStore, error) {
 	// Set default timeouts
 	if cfg.ConnectTimeout == 0 {
 		cfg.ConnectTimeout = 5 * time.Second
@@ -56,7 +51,6 @@ func NewConsulStore(ctx context.Context, cfg ConsulConfig) (KvStore, error) {
 
 	return &consulStore{
 		client: client,
-		ctx:    ctx,
 	}, nil
 }
 

@@ -20,11 +20,7 @@ type ZookeeperConfig struct {
 	SessionTimeout time.Duration // 会话超时时间，单位：time.Duration（如 10*time.Second）
 }
 
-func NewZookeeperStore(ctx context.Context, cfg ZookeeperConfig) (KvStore, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
+func NewZookeeperStore(cfg ZookeeperConfig) (KvStore, error) {
 	// Set default timeouts
 	if cfg.ConnectTimeout == 0 {
 		cfg.ConnectTimeout = 5 * time.Second
@@ -38,19 +34,9 @@ func NewZookeeperStore(ctx context.Context, cfg ZookeeperConfig) (KvStore, error
 		return nil, fmt.Errorf("%w: %v", ErrConnectionFailed, err)
 	}
 
-	// Wait for connection with timeout
-	select {
-	case <-time.After(cfg.ConnectTimeout):
-		conn.Close()
-		return nil, fmt.Errorf("%w: connection timeout", ErrConnectionFailed)
-	case <-ctx.Done():
-		conn.Close()
-		return nil, fmt.Errorf("%w: context cancelled", ErrConnectionFailed)
-	default:
-		// Check if connected
-		if conn.State() != zk.StateHasSession && conn.State() != zk.StateConnected {
-			time.Sleep(100 * time.Millisecond)
-		}
+	// Best-effort wait for connection
+	if conn.State() != zk.StateHasSession && conn.State() != zk.StateConnected {
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	return &zkStore{

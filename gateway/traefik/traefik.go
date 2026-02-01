@@ -52,7 +52,7 @@ func WithAutoRenew(enabled bool) ClientOption {
 	}
 }
 
-// NewClient 创建 Traefik 网关客户端
+// NewClient 创建Traefik网关客户端
 //
 // TTL 机制说明：
 //   - 当 Endpoint.TTL > 0 时，服务实例配置会在 TTL 秒后自动过期
@@ -150,7 +150,7 @@ func (c *traefikClient) Register(ctx context.Context, endpoint *gateway.Endpoint
 		return err
 	}
 	opts := c.buildHandlerOptions()
-	err = c.handler.Register(normalized, opts)
+	err = c.handler.Register(ctx, normalized, opts)
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func (c *traefikClient) Deregister(ctx context.Context, endpoint *gateway.Endpoi
 	// 停止续约协程
 	c.stopAutoRenew(normalized.ID())
 
-	return c.handler.Deregister(normalized)
+	return c.handler.Deregister(ctx, normalized)
 }
 
 func (c *traefikClient) Update(ctx context.Context, endpoint *gateway.Endpoint) error {
@@ -181,7 +181,7 @@ func (c *traefikClient) Update(ctx context.Context, endpoint *gateway.Endpoint) 
 		return err
 	}
 	opts := c.buildHandlerOptions()
-	return c.handler.Update(normalized, opts)
+	return c.handler.Update(ctx, normalized, opts)
 }
 
 func (c *traefikClient) Close(ctx context.Context) error {
@@ -202,7 +202,7 @@ func (c *traefikClient) KeepAlive(ctx context.Context, endpoint *gateway.Endpoin
 	if err != nil {
 		return err
 	}
-	return c.handler.Refresh(normalized)
+	return c.handler.Refresh(ctx, normalized)
 }
 
 // startAutoRenew 启动自动续约协程
@@ -234,10 +234,10 @@ func (c *traefikClient) startAutoRenew(ctx context.Context, endpoint gateway.End
 				return
 			case <-ticker.C:
 				// 尝试续约
-				err := c.handler.Refresh(endpoint)
+				err := c.handler.Refresh(ctx, endpoint)
 				if err != nil {
 					// Refresh 失败，尝试重新 Register
-					err = c.handler.Register(endpoint, opts)
+					err = c.handler.Register(ctx, endpoint, opts)
 					if err != nil {
 						// Register 也失败，记录日志（这里简单忽略）
 						// TODO: 添加日志
