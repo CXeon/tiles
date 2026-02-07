@@ -30,6 +30,8 @@ func NewAppContext(ctx context.Context) *AppContext {
 
 	appCtx := &AppContext{Context: ctx}
 	ent := &entity{}
+	ent.Extra = make(map[string]any)
+
 	if ginCtx, ok := ctx.(*gin.Context); ok {
 		ent.TraceID = ginCtx.Request.Header.Get(traceID)
 		ent.Env = ginCtx.Request.Header.Get(env)
@@ -41,9 +43,91 @@ func NewAppContext(ctx context.Context) *AppContext {
 	}
 
 	if aCtx, ok := ctx.(*AppContext); ok {
-		// TODO get方法
+		ent.TraceID = aCtx.ent.TraceID
+		ent.Env = aCtx.ent.Env
+		ent.Cluster = aCtx.ent.Cluster
+		ent.UserID = aCtx.ent.UserID
+		if aCtx.ent.Extra != nil {
+			ent.Extra = aCtx.ent.Extra
+		}
+
+		appCtx.ent = ent
+		return appCtx
 	}
 
 	// 默认ctx的默认获取方法
 
+	traceIDInter := ctx.Value(traceID)
+	if traceIDInter != nil {
+
+		traceIDStr, ok := traceIDInter.(string)
+		if ok {
+			ent.TraceID = traceIDStr
+		}
+	}
+	envInter := ctx.Value(env)
+	if envInter != nil {
+		envStr, ok := envInter.(string)
+		if ok {
+			ent.Env = envStr
+		}
+	}
+	clusterInter := ctx.Value(cluster)
+	if clusterInter != nil {
+		clusterStr, ok := clusterInter.(string)
+		if ok {
+			ent.Cluster = clusterStr
+		}
+	}
+	userIDInter := ctx.Value(userID)
+	if userIDInter != nil {
+		userIDStr, ok := userIDInter.(string)
+		if ok {
+			ent.UserID = userIDStr
+		}
+	}
+
+	appCtx.ent = ent
+	return appCtx
+
+}
+
+func (appCtx *AppContext) TraceID() string {
+	return appCtx.ent.TraceID
+}
+
+func (appCtx *AppContext) Env() string {
+	return appCtx.ent.Env
+}
+
+func (appCtx *AppContext) Cluster() string {
+	return appCtx.ent.Cluster
+}
+
+func (appCtx *AppContext) UserID() string {
+	return appCtx.ent.UserID
+}
+
+func (appCtx *AppContext) Extra(key string) any {
+	return appCtx.ent.Extra[key]
+}
+
+func (appCtx *AppContext) SetTraceID(traceID string) {
+	appCtx.ent.TraceID = traceID
+}
+
+func (appCtx *AppContext) SetEnv(env string) {
+	appCtx.ent.Env = env
+}
+
+func (appCtx *AppContext) SetCluster(cluster string) {
+	appCtx.ent.Cluster = cluster
+}
+
+func (appCtx *AppContext) SetUserID(userID string) {
+	appCtx.ent.UserID = userID
+}
+
+func (appCtx *AppContext) SetExtra(key string, value any) {
+	appCtx.ent.Extra[key] = value
 }
