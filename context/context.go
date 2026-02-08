@@ -1,7 +1,11 @@
 package context
 
-import "context"
-import "github.com/gin-gonic/gin"
+import (
+	"context"
+	"maps"
+
+	"github.com/gin-gonic/gin"
+)
 
 const (
 	traceID = "X-Trace-Id"
@@ -48,7 +52,7 @@ func NewAppContext(ctx context.Context) *AppContext {
 		ent.Cluster = aCtx.ent.Cluster
 		ent.UserID = aCtx.ent.UserID
 		if aCtx.ent.Extra != nil {
-			ent.Extra = aCtx.ent.Extra
+			maps.Copy(ent.Extra, aCtx.ent.Extra)
 		}
 
 		appCtx.ent = ent
@@ -110,24 +114,4 @@ func (appCtx *AppContext) UserID() string {
 
 func (appCtx *AppContext) Extra(key string) any {
 	return appCtx.ent.Extra[key]
-}
-
-func (appCtx *AppContext) SetTraceID(traceID string) {
-	appCtx.ent.TraceID = traceID
-}
-
-func (appCtx *AppContext) SetEnv(env string) {
-	appCtx.ent.Env = env
-}
-
-func (appCtx *AppContext) SetCluster(cluster string) {
-	appCtx.ent.Cluster = cluster
-}
-
-func (appCtx *AppContext) SetUserID(userID string) {
-	appCtx.ent.UserID = userID
-}
-
-func (appCtx *AppContext) SetExtra(key string, value any) {
-	appCtx.ent.Extra[key] = value
 }
