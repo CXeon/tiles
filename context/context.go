@@ -1,7 +1,9 @@
 package context
 
-import "context"
-import "github.com/gin-gonic/gin"
+import (
+	"context"
+	"maps"
+)
 
 const (
 	traceID = "X-Trace-Id"
@@ -32,23 +34,13 @@ func NewAppContext(ctx context.Context) *AppContext {
 	ent := &entity{}
 	ent.Extra = make(map[string]any)
 
-	if ginCtx, ok := ctx.(*gin.Context); ok {
-		ent.TraceID = ginCtx.Request.Header.Get(traceID)
-		ent.Env = ginCtx.Request.Header.Get(env)
-		ent.Cluster = ginCtx.Request.Header.Get(cluster)
-		ent.UserID = ginCtx.Request.Header.Get(userID)
-
-		appCtx.ent = ent
-		return appCtx
-	}
-
 	if aCtx, ok := ctx.(*AppContext); ok {
 		ent.TraceID = aCtx.ent.TraceID
 		ent.Env = aCtx.ent.Env
 		ent.Cluster = aCtx.ent.Cluster
 		ent.UserID = aCtx.ent.UserID
 		if aCtx.ent.Extra != nil {
-			ent.Extra = aCtx.ent.Extra
+			maps.Copy(ent.Extra, aCtx.ent.Extra)
 		}
 
 		appCtx.ent = ent
@@ -110,24 +102,4 @@ func (appCtx *AppContext) UserID() string {
 
 func (appCtx *AppContext) Extra(key string) any {
 	return appCtx.ent.Extra[key]
-}
-
-func (appCtx *AppContext) SetTraceID(traceID string) {
-	appCtx.ent.TraceID = traceID
-}
-
-func (appCtx *AppContext) SetEnv(env string) {
-	appCtx.ent.Env = env
-}
-
-func (appCtx *AppContext) SetCluster(cluster string) {
-	appCtx.ent.Cluster = cluster
-}
-
-func (appCtx *AppContext) SetUserID(userID string) {
-	appCtx.ent.UserID = userID
-}
-
-func (appCtx *AppContext) SetExtra(key string, value any) {
-	appCtx.ent.Extra[key] = value
 }
