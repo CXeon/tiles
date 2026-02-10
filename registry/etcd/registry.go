@@ -15,9 +15,8 @@ type Registry struct {
 func NewRegistry(conf Config) (*Registry, error) {
 
 	h := &handler{
-		conf:            conf,
-		currentEndpoint: conf.CurrentEndpoint,
-		endpoints:       make([]*registry.Endpoint, 0),
+		conf:      conf,
+		endpoints: make([]*registry.Endpoint, 0),
 	}
 
 	// 和etcd建立连接

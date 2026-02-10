@@ -15,14 +15,13 @@ type handler struct {
 	lease           clientv3.Lease
 	leaseID         clientv3.LeaseID
 	currentEndpoint *registry.Endpoint // 当前服务身份信息，用于默认隔离上下文
-	currentInstance *registry.Endpoint // 当前已注册的实例
 	endpoints       []*registry.Endpoint
 	lock            sync.RWMutex // 保护endpoints
 }
 
 func (h *handler) register(ctx context.Context, endpoint registry.Endpoint) error {
-	if h.currentInstance != nil {
-		return errors.New("register already registered")
+	if h.currentEndpoint != nil {
+		return errors.New("a service has already registered")
 	}
 	// 1.构造etcd的key
 	key := h.getServiceEtcdKey(endpoint)
@@ -43,7 +42,7 @@ func (h *handler) register(ctx context.Context, endpoint registry.Endpoint) erro
 		return err
 	}
 
-	h.currentInstance = &endpoint
+	h.currentEndpoint = &endpoint
 
 	return nil
 }
