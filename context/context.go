@@ -3,8 +3,6 @@ package context
 import (
 	"context"
 	"maps"
-
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -35,16 +33,6 @@ func NewAppContext(ctx context.Context) *AppContext {
 	appCtx := &AppContext{Context: ctx}
 	ent := &entity{}
 	ent.Extra = make(map[string]any)
-
-	if ginCtx, ok := ctx.(*gin.Context); ok {
-		ent.TraceID = ginCtx.Request.Header.Get(traceID)
-		ent.Env = ginCtx.Request.Header.Get(env)
-		ent.Cluster = ginCtx.Request.Header.Get(cluster)
-		ent.UserID = ginCtx.Request.Header.Get(userID)
-
-		appCtx.ent = ent
-		return appCtx
-	}
 
 	if aCtx, ok := ctx.(*AppContext); ok {
 		ent.TraceID = aCtx.ent.TraceID
