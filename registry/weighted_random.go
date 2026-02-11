@@ -56,6 +56,6 @@ func (lb *WeightedRandomBalancer) Select(eps []Endpoint) *Endpoint {
 		}
 	}
 
-	// 兰底返回最后一个（理论上不会走到这里）
+	// 保底返回最后一个（理论上不会走到这里）
 	return &eps[length-1]
 }
