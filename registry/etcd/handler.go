@@ -27,7 +27,7 @@ type handler struct {
 
 func (h *handler) register(ctx context.Context, endpoint registry.Endpoint) error {
 	if h.currentEndpoint != nil {
-		return errors.New("a service has already registered")
+		return registry.ErrNotRegistered
 	}
 	// 1.构造etcd的key
 	key := h.getServiceEtcdKey(endpoint)
@@ -93,16 +93,16 @@ func (h *handler) deregister(ctx context.Context, endpoint registry.Endpoint) er
 		return nil
 	}
 
-	// 从list找到对应实例删除
-	for i, e := range list {
-		if e.ID() == endpoint.ID() {
-			list = append(list[:i], list[i+1:]...)
-			break
+	// 使用新切片代替原地修改
+	newList := make([]registry.Endpoint, 0, len(list)-1)
+	for _, e := range list {
+		if e.ID() != endpoint.ID() {
+			newList = append(newList, e)
 		}
 	}
 
 	// 保存到etcd
-	err = h.putEndpoints(ctx, key, list)
+	err = h.putEndpoints(ctx, key, newList)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func (h *handler) deregister(ctx context.Context, endpoint registry.Endpoint) er
 func (h *handler) discover(ctx context.Context, services []string, option ...registry.ServiceOption) (registry.CompanyRegistry, error) {
 	// 1. 检查 currentEndpoint 是否存在
 	if h.currentEndpoint == nil {
-		return nil, errors.New("currentEndpoint is nil, cannot determine isolation context")
+		return nil, registry.ErrCurrentEndpointNil
 	}
 
 	// 2. 构建默认 opt（ComProj 默认为当前实例的 Company + Project）
@@ -131,7 +131,7 @@ func (h *handler) discover(ctx context.Context, services []string, option ...reg
 
 	// 4. 校验：ComProj 不能为空
 	if len(opt.ComProj) == 0 {
-		return nil, errors.New("ComProj cannot be empty")
+		return nil, registry.ErrComProjEmpty
 	}
 
 	// 5. 锁定隔离维度（从 currentEndpoint 提取）
@@ -175,10 +175,30 @@ func (h *handler) discover(ctx context.Context, services []string, option ...reg
 		}
 	}
 
-	// 7. 记录发现的服务
+	// 7. 合并到handler的endpoints中(保持已存在的LoadBalancer)
 	h.lock.Lock()
 	defer h.lock.Unlock()
-	h.endpoints = result
+
+	// 合并result到h.endpoints,保持已存在的LoadBalancer
+	for company, projects := range result {
+		if h.endpoints[company] == nil {
+			h.endpoints[company] = make(registry.ProjectRegistry)
+		}
+		for project, services := range projects {
+			if h.endpoints[company][project] == nil {
+				h.endpoints[company][project] = make(registry.ServiceRegistry)
+			}
+			for service, newData := range services {
+				// 检查是否已存在LoadBalancer
+				existing := h.endpoints[company][project][service]
+				if existing.LoadBalancer != nil {
+					// 保持原有LoadBalancer，只更新Endpoints
+					newData.LoadBalancer = existing.LoadBalancer
+				}
+				h.endpoints[company][project][service] = newData
+			}
+		}
+	}
 
 	return result, nil
 }
@@ -186,7 +206,7 @@ func (h *handler) discover(ctx context.Context, services []string, option ...reg
 func (h *handler) watch(ctx context.Context, services []string, option ...registry.ServiceOption) error {
 	// 1. 检查 currentEndpoint 是否存在
 	if h.currentEndpoint == nil {
-		return errors.New("currentEndpoint is nil, cannot determine isolation context")
+		return registry.ErrCurrentEndpointNil
 	}
 
 	// 2. 构建默认 opt（ComProj 默认为当前实例的 Company + Project）
@@ -203,7 +223,7 @@ func (h *handler) watch(ctx context.Context, services []string, option ...regist
 
 	// 4. 校验：ComProj 不能为空
 	if len(opt.ComProj) == 0 {
-		return errors.New("ComProj cannot be empty")
+		return registry.ErrComProjEmpty
 	}
 
 	// 5. 锁定隔离维度（从 currentEndpoint 提取）
@@ -215,99 +235,128 @@ func (h *handler) watch(ctx context.Context, services []string, option ...regist
 	}
 	color := h.currentEndpoint.Color
 
-	// 6. 遍历并且watch
+	// 6. 创建watch context
 	watchCtx, cancelFuncWatch := context.WithCancel(context.Background())
 	h.cancelFuncWatch = cancelFuncWatch
+
+	// 7. 使用goroutine并发watch多个服务
+	var wg sync.WaitGroup
 	for company, projects := range opt.ComProj {
 		for _, project := range projects {
 			for _, service := range services {
 				key := h.buildDiscoverKey(env, cluster, company, project, protocol, service, color)
-				watchChan := h.cli.Watch(ctx, key)
-				for {
-					select {
-					case watchResp, ok := <-watchChan:
-						if !ok {
-							// channel 已关闭，退出
-							return nil
-						}
-						if watchResp.Err() != nil {
-							// watch 失败
-							return watchResp.Err()
-						}
-						for _, ev := range watchResp.Events {
-							switch ev.Type {
-							case clientv3.EventTypePut:
-								// 更新或者新增handler里记录的服务实例信息
-								list, err := h.unmarshalEndpoints(ev.Kv.Value)
-								if err != nil {
-									return err
-								}
-								h.lock.Lock()
-								if h.endpoints[company] == nil {
-									h.endpoints[company] = make(registry.ProjectRegistry)
-								}
-								if h.endpoints[company][project] == nil {
-									h.endpoints[company][project] = make(registry.ServiceRegistry)
-								}
 
-								// 每次创建新的负载均衡器，不复用旧的
-								h.endpoints[company][project][service] = registry.EndpointsWithLoadBalancer{
-									Endpoints:    list,
-									LoadBalancer: h.createLoadBalancer(),
-								}
-
-								h.lock.Unlock()
-							case clientv3.EventTypeDelete:
-								// 从handler里记录的服务实例信息中删除对应的实例
-								list, err := h.unmarshalEndpoints(ev.Kv.Value)
-								if err != nil {
-									return err
-								}
-								// list 处理成map
-								endpointMap := make(map[string]registry.Endpoint)
-								for _, endpoint := range list {
-									endpointMap[endpoint.ID()] = endpoint
-								}
-
-								h.lock.Lock()
-								for company, projects := range h.endpoints {
-									for project, instances := range projects {
-										for service, endpoints := range instances {
-											list := endpoints.Endpoints
-
-											for i, endpoint := range list {
-												if _, ok := endpointMap[endpoint.ID()]; ok {
-													list = append(list[:i], list[i+1:]...)
-													// 每次创建新的负载均衡器，不复用旧的
-													h.endpoints[company][project][service] = registry.EndpointsWithLoadBalancer{
-														Endpoints:    list,
-														LoadBalancer: h.createLoadBalancer(),
-													}
-													break
-												}
-											}
-										}
-									}
-								}
-								h.lock.Unlock()
-							}
-						}
-					case <-watchCtx.Done():
-						return nil
-					}
-				}
-
+				wg.Add(1)
+				go func(key, company, project, service string) {
+					defer wg.Done()
+					h.watchSingleService(watchCtx, key, company, project, service)
+				}(key, company, project, service)
 			}
 		}
 	}
 
+	// 8. 在后台等待所有goroutine结束
+	go func() {
+		wg.Wait()
+	}()
+
 	return nil
+}
+
+// watchSingleService 监听单个服务的变更
+func (h *handler) watchSingleService(ctx context.Context, key, company, project, service string) {
+	watchChan := h.cli.Watch(ctx, key)
+	for {
+		select {
+		case watchResp, ok := <-watchChan:
+			if !ok {
+				// channel 已关闭，退出
+				return
+			}
+			if watchResp.Err() != nil {
+				// watch 失败，退出
+				return
+			}
+			for _, ev := range watchResp.Events {
+				switch ev.Type {
+				case clientv3.EventTypePut:
+					// 更新或者新增handler里记录的服务实例信息
+					list, err := h.unmarshalEndpoints(ev.Kv.Value)
+					if err != nil {
+						return
+					}
+					h.lock.Lock()
+					if h.endpoints[company] == nil {
+						h.endpoints[company] = make(registry.ProjectRegistry)
+					}
+					if h.endpoints[company][project] == nil {
+						h.endpoints[company][project] = make(registry.ServiceRegistry)
+					}
+
+					// 检查是否已存在LoadBalancer，如果存在则保持，否则创建新的
+					existing := h.endpoints[company][project][service]
+					if existing.LoadBalancer == nil {
+						// 首次创建，初始化LoadBalancer
+						h.endpoints[company][project][service] = registry.EndpointsWithLoadBalancer{
+							Endpoints:    list,
+							LoadBalancer: h.createLoadBalancer(),
+						}
+					} else {
+						// 保持原有LoadBalancer，只更新Endpoints
+						existing.Endpoints = list
+						h.endpoints[company][project][service] = existing
+					}
+
+					h.lock.Unlock()
+				case clientv3.EventTypeDelete:
+					// 从handler里记录的服务实例信息中删除对应的实例
+					list, err := h.unmarshalEndpoints(ev.Kv.Value)
+					if err != nil {
+						return
+					}
+					// list 处理成map
+					endpointMap := make(map[string]registry.Endpoint)
+					for _, endpoint := range list {
+						endpointMap[endpoint.ID()] = endpoint
+					}
+
+					h.lock.Lock()
+					for c, projects := range h.endpoints {
+						for p, instances := range projects {
+							for s, endpoints := range instances {
+								oldList := endpoints.Endpoints
+
+								// 使用新切片代替原地修改
+								newList := make([]registry.Endpoint, 0, len(oldList))
+								for _, endpoint := range oldList {
+									if _, ok := endpointMap[endpoint.ID()]; !ok {
+										newList = append(newList, endpoint)
+									}
+								}
+
+								// 只有实际删除了元素才更新
+								if len(newList) != len(oldList) {
+									// 保持原有LoadBalancer，只更新Endpoints
+									existing := h.endpoints[c][p][s]
+									existing.Endpoints = newList
+									h.endpoints[c][p][s] = existing
+								}
+							}
+						}
+					}
+					h.lock.Unlock()
+				}
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (h *handler) getService(ctx context.Context, service string, option ...registry.GetServiceOption) (registry.Endpoint, error) {
 	// 1. 检查 currentEndpoint 是否存在
 	if h.currentEndpoint == nil {
-		return registry.Endpoint{}, errors.New("currentEndpoint is nil, cannot determine isolation context")
+		return registry.Endpoint{}, registry.ErrCurrentEndpointNil
 	}
 
 	// 2. 构建默认 opt（Company + Project 默认为当前实例的）
@@ -323,7 +372,7 @@ func (h *handler) getService(ctx context.Context, service string, option ...regi
 
 	// 4. 校验：Company 和 Project 不能为空
 	if opt.Company == "" || opt.Project == "" {
-		return registry.Endpoint{}, errors.New("company or project is empty")
+		return registry.Endpoint{}, registry.ErrEmptyCompanyOrProject
 	}
 
 	// 5. 从缓存的 endpoints 中查询
@@ -331,16 +380,16 @@ func (h *handler) getService(ctx context.Context, service string, option ...regi
 	defer h.lock.RUnlock()
 
 	if h.endpoints[opt.Company] == nil {
-		return registry.Endpoint{}, errors.New("company not found in cache")
+		return registry.Endpoint{}, registry.ErrServiceNotFound
 	}
 
 	if h.endpoints[opt.Company][opt.Project] == nil {
-		return registry.Endpoint{}, errors.New("project not found in cache")
+		return registry.Endpoint{}, registry.ErrServiceNotFound
 	}
 
 	instances := h.endpoints[opt.Company][opt.Project][service]
 	if len(instances.Endpoints) == 0 {
-		return registry.Endpoint{}, errors.New("service not found in cache")
+		return registry.Endpoint{}, registry.ErrServiceNotFound
 	}
 
 	// 6. 负载均衡
