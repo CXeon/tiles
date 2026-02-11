@@ -114,3 +114,14 @@ func (h *handler) putEndpoints(ctx context.Context, key string, list []registry.
 	}
 	return nil
 }
+
+func (h *handler) createLoadBalancer() registry.LoadBalancer {
+	switch h.conf.LoadBalancerStrategy {
+	case 1:
+		return registry.NewRandomBalancer()
+	case 2:
+		return registry.NewWeightedRandomBalancer()
+	default:
+		return registry.NewRoundRobinBalancer()
+	}
+}

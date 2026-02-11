@@ -16,7 +16,7 @@ func NewRegistry(conf Config) (*Registry, error) {
 
 	h := &handler{
 		conf:      conf,
-		endpoints: make([]*registry.Endpoint, 0),
+		endpoints: make(registry.CompanyRegistry),
 	}
 
 	// 和etcd建立连接
@@ -59,18 +59,25 @@ func (r *Registry) Deregister(ctx context.Context, endpoint *registry.Endpoint) 
 	return r.handler.deregister(ctx, *endpoint)
 }
 
-func (r *Registry) Discover(ctx context.Context, services []string, option ...registry.GetServiceOption) ([]*registry.Endpoint, error) {
+func (r *Registry) Discover(ctx context.Context, services []string, option ...registry.ServiceOption) (registry.CompanyRegistry, error) {
+	if len(services) == 0 {
+		return nil, errors.New("services is empty")
+	}
 	return r.handler.discover(ctx, services, option...)
 }
 
-func (r *Registry) Watch(ctx context.Context, service string, handler registry.WatchHandler, option ...registry.WatchOption) (registry.Watcher, error) {
-	// TODO implement me
-	panic("implement me")
+func (r *Registry) Watch(ctx context.Context, services []string, option ...registry.ServiceOption) error {
+	if len(services) == 0 {
+		return errors.New("services is empty")
+	}
+	return r.handler.watch(ctx, services, option...)
 }
 
-func (r *Registry) Update(ctx context.Context, endpoint *registry.Endpoint) error {
-	// TODO implement me
-	panic("implement me")
+func (r *Registry) GetService(ctx context.Context, service string, option ...registry.GetServiceOption) (registry.Endpoint, error) {
+	if len(service) == 0 {
+		return registry.Endpoint{}, errors.New("service is empty")
+	}
+	return r.handler.getService(ctx, service, option...)
 }
 
 func (r *Registry) Close(ctx context.Context) error {

@@ -48,57 +48,62 @@ func (e *Endpoint) ID() string {
 	return fmt.Sprintf("%s/%s/%s/%s/%s/%s/%s/%s:%d", e.Env, e.Cluster, e.Company, e.Project, e.Service, e.Protocol, e.Color, e.Ip, e.Port)
 }
 
-type WatchOpt struct {
-	Env      string
-	Cluster  string
-	ComProj  map[string]string
-	Protocol ProtocolType
-	Color    string
+// 获取实例权重
+func (e *Endpoint) GetWeight() uint16 {
+	return e.Weight
 }
 
-type WatchOption func(*WatchOpt)
-
-func WithWatchOptEnv(env string) WatchOption {
-	return func(o *WatchOpt) {
-		o.Env = env
-	}
-}
-
-func WithWatchOptCluster(cluster string) WatchOption {
-	return func(o *WatchOpt) {
-		o.Cluster = cluster
-	}
-}
-
-func WithWatchOptProjectsOfCompanies(comProj map[string]string) WatchOption {
-	return func(o *WatchOpt) {
-		o.ComProj = comProj
-	}
-}
-
-func WithWatchOptProtocol(protocol ProtocolType) WatchOption {
-	return func(o *WatchOpt) {
-		o.Protocol = protocol
-	}
-}
-
-func WithWatchOptColor(color string) WatchOption {
-	return func(o *WatchOpt) {
-		o.Color = color
-	}
-}
-
-type GetServiceOpt struct {
+type ServiceOpt struct {
 	// 跨公司/项目查询
 	// - 如果为空，则使用 CurrentEndpoint 的 Company + Project（默认同隔离）
 	// - 如果指定，则在"当前环境隔离级别"下，跨指定的 Company + Project 查询
 	ComProj map[string][]string // key=Company, value=[]Project
 }
 
+type ServiceOption func(*ServiceOpt)
+
+func WithGetOptComProj(comProj map[string][]string) ServiceOption {
+	return func(o *ServiceOpt) {
+		o.ComProj = comProj
+	}
+}
+
+type DiscoveredEndpoints struct {
+	m CompanyRegistry
+}
+
+type EndpointsWithLoadBalancer struct {
+	Endpoints    []Endpoint
+	LoadBalancer LoadBalancer
+}
+
+// ServiceRegistry 表示某个项目下所有服务的注册信息
+// key=服务名, value=该服务的实例列表+负载均衡器
+type ServiceRegistry map[string]EndpointsWithLoadBalancer
+
+// ProjectRegistry 表示某个公司下所有项目的服务注册信息
+// key=项目名, value=该项目的服务注册表
+type ProjectRegistry map[string]ServiceRegistry
+
+// CompanyRegistry 表示所有公司的服务注册信息（服务发现的返回结果）
+// key=公司名, value=该公司的项目注册表
+type CompanyRegistry map[string]ProjectRegistry
+
+type GetServiceOpt struct {
+	Company string
+	Project string
+}
+
 type GetServiceOption func(*GetServiceOpt)
 
-func WithGetOptComProj(comProj map[string][]string) GetServiceOption {
+func WithGetCompany(company string) GetServiceOption {
 	return func(o *GetServiceOpt) {
-		o.ComProj = comProj
+		o.Company = company
+	}
+}
+
+func WithGetProject(project string) GetServiceOption {
+	return func(o *GetServiceOpt) {
+		o.Project = project
 	}
 }
