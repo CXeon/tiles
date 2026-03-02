@@ -11,12 +11,6 @@
 - **状态保持**：LoadBalancer 实例在服务更新时保持状态，确保 RoundRobin 等策略的连续性
 - **自动续约**：通过 etcd lease 机制实现服务实例的自动续约
 
-## 安装
-
-```bash
-go get github.com/CXeon/tiles/registry/etcd
-```
-
 ## 快速开始
 
 ### 基本使用
@@ -372,8 +366,7 @@ if err != nil {
 ## 运行测试
 
 ```bash
-cd registry/etcd
-go test -v
+go test github.com/CXeon/tiles/registry/etcd/... -v
 ```
 
 **注意**: 测试需要本地运行 etcd 实例。

@@ -10,12 +10,6 @@
 - **灵活输出**：支持文件、stdout 或同时输出
 - **调用位置**：自动记录日志调用方的文件名和行号
 
-## 安装
-
-```bash
-go get github.com/CXeon/tiles/logger/zap
-```
-
 ## 快速开始
 
 ### 基本使用
@@ -158,8 +152,7 @@ cfg := zapLogger.Config{
 ## 运行测试
 
 ```bash
-cd logger/zap
-go test -v
+go test github.com/CXeon/tiles/logger/zap/... -v
 ```
 
 ## 性能特点

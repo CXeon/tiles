@@ -10,12 +10,6 @@
 - **变更追踪**：通过新旧快照对比，精确报告新增、修改、删除的配置项
 - **并发安全**：使用 `sync.RWMutex` 保护 handler 列表和快照
 
-## 安装
-
-```bash
-go get github.com/CXeon/tiles/config/viper
-```
-
 ## 快速开始
 
 ```go
@@ -134,8 +128,7 @@ cfg.Watch(func(event *baseConfig.ChangeEvent) {
 ## 运行测试
 
 ```bash
-cd config/viper
-go test -v
+go test github.com/CXeon/tiles/config/viper/... -v
 ```
 
 ## 相关链接

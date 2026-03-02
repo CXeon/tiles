@@ -10,12 +10,6 @@
 - **灵活输出**：支持文件、stdout 或同时输出
 - **丰富生态**：大量第三方 Hook 和格式化器
 
-## 安装
-
-```bash
-go get github.com/CXeon/tiles/logger/logrus
-```
-
 ## 快速开始
 
 ### 基本使用
@@ -156,8 +150,7 @@ cfg := logrusLogger.Config{
 ## 运行测试
 
 ```bash
-cd logger/logrus
-go test -v
+go test github.com/CXeon/tiles/logger/logrus/... -v
 ```
 
 ## 性能特点
