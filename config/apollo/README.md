@@ -65,11 +65,13 @@ type Config struct {
     // AppID 是 Apollo App ID（必填）
     AppID string
 
-    // Cluster 是集群名称，如 "default"、"dev"、"prod"（必填）
+    // Cluster 是集群名称，如 "default"、"beijing"（必填）
+    // 注意：环境（DEV/FAT/UAT/PRO）由 IP 字段区分，Cluster 是同一环境内的分组
     Cluster string
 
     // IP 是 Apollo Config Service 地址（必填）
     // 格式：http://apollo-host:8080
+    // 每套环境（DEV/FAT/UAT/PRO）有各自独立的 Config Service 地址
     IP string
 
     // NamespaceName 是命名空间，默认 "application"
@@ -89,10 +91,11 @@ type Config struct {
 ### 开发环境
 
 ```go
+// 不同环境对应各自的 Apollo Config Service 地址，与 Cluster 无关
 cfg := apolloConfig.New(apolloConfig.Config{
     AppID:   "my-service",
-    Cluster: "dev",
-    IP:      "http://apollo-dev.company.com:8080",
+    Cluster: "default",
+    IP:      "http://apollo-dev.company.com:8080", // DEV 环境的 Config Service
 })
 ```
 

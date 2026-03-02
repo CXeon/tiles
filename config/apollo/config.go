@@ -16,7 +16,8 @@ import (
 type Config struct {
 	// AppID 是 Apollo App ID（必填）
 	AppID string
-	// Cluster 是集群名称，如 "default"、"dev"（必填）
+	// Cluster 是集群名称，如 "default"、"beijing"（必填）
+	// 注意：环境（DEV/FAT/UAT/PRO）由 IP 字段区分，Cluster 是同一环境内的分组
 	Cluster string
 	// IP 是 Apollo 服务器地址（必填）
 	IP string
