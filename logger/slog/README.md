@@ -11,12 +11,6 @@
 - **灵活输出**：支持文件、stdout 或同时输出
 - **零学习成本**：Go 官方推荐，API 设计简洁
 
-## 安装
-
-```bash
-go get github.com/CXeon/tiles/logger/slog
-```
-
 ## 快速开始
 
 ### 基本使用
@@ -157,8 +151,7 @@ cfg := slogLogger.Config{
 ## 运行测试
 
 ```bash
-cd logger/slog
-go test -v
+go test github.com/CXeon/tiles/logger/slog/... -v
 ```
 
 ## 性能特点

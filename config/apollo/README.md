@@ -10,12 +10,6 @@
 - **多命名空间支持**：通过 `NamespaceName` 指定不同命名空间
 - **变更精确感知**：区分 added / modified / deleted 三种变更类型
 
-## 安装
-
-```bash
-go get github.com/CXeon/tiles/config/apollo
-```
-
 ## 快速开始
 
 ```go
@@ -136,8 +130,7 @@ cfg.Watch(func(event *baseConfig.ChangeEvent) {
 ## 运行测试
 
 ```bash
-cd config/apollo
-go test -v
+go test github.com/CXeon/tiles/config/apollo/... -v
 ```
 
 > 注意：测试需要访问可用的 Apollo 服务端，建议在集成测试环境中运行。
