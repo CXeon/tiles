@@ -43,7 +43,7 @@ func defaultOptions() *options {
 		parseTime:          true,
 		loc:                "Local",
 		postgresqlSSLMode:  "disable",
-		postgresqlTimeZone: "Local",
+		postgresqlTimeZone: "Asia/Shanghai",
 		maxIdleConns:       10,
 		maxOpenConns:       100,
 		connMaxLifetime:    30 * time.Minute,
