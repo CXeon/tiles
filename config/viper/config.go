@@ -2,10 +2,14 @@ package viper
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/CXeon/tiles/config"
 	"github.com/fsnotify/fsnotify"
+	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 )
 
@@ -21,6 +25,13 @@ type Config struct {
 	EnvPrefix string
 	// AutoEnv 是否自动绑定所有环境变量，默认 true
 	AutoEnv bool
+	// EnvFile 是 .env 文件路径。
+	// 空字符串 = 尝试加载当前目录的 ".env"（不存在则静默跳过）。
+	// "-" = 完全跳过 .env 加载。
+	EnvFile string
+	// AllowMissingFile 为 true 时，配置文件不存在不报错，静默跳过。
+	// 默认 false，保持原有行为（找不到文件报错）。
+	AllowMissingFile bool
 }
 
 type configImpl struct {
@@ -58,15 +69,27 @@ func (c *configImpl) Load() error {
 	}
 	c.v.SetConfigType(c.cfg.ConfigType)
 
+	// 在 AutomaticEnv 之前加载 .env，使其值进入进程环境变量后被 viper 识别
+	if err := c.loadEnvFile(); err != nil {
+		return err
+	}
+
 	if c.cfg.EnvPrefix != "" {
 		c.v.SetEnvPrefix(c.cfg.EnvPrefix)
 	}
 	if c.cfg.AutoEnv {
+		// 嵌套 key（如 model.api_key）在匹配环境变量时，需要把 "." 替换成 "_"
+		// 否则 viper 会查找 EINO_MODEL.API_KEY 而非 EINO_MODEL_API_KEY
+		c.v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 		c.v.AutomaticEnv()
 	}
 
 	if err := c.v.ReadInConfig(); err != nil {
-		return err
+		var notFound viper.ConfigFileNotFoundError
+		if !c.cfg.AllowMissingFile || !isConfigFileNotFound(err, &notFound) {
+			return err
+		}
+		// AllowMissingFile=true 且文件不存在，静默跳过
 	}
 
 	c.mu.Lock()
@@ -75,6 +98,34 @@ func (c *configImpl) Load() error {
 	c.mu.Unlock()
 
 	return nil
+}
+
+// loadEnvFile 加载 .env 文件到进程环境变量。
+// EnvFile=="-" 时跳过；文件不存在时静默跳过；其他错误返回。
+func (c *configImpl) loadEnvFile() error {
+	if c.cfg.EnvFile == "-" {
+		return nil
+	}
+	path := c.cfg.EnvFile
+	if path == "" {
+		path = ".env"
+	}
+	if err := godotenv.Load(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("load env file %q: %w", path, err)
+	}
+	return nil
+}
+
+// isConfigFileNotFound 检查 err 是否为 viper.ConfigFileNotFoundError 类型。
+func isConfigFileNotFound(err error, target *viper.ConfigFileNotFoundError) bool {
+	if e, ok := err.(viper.ConfigFileNotFoundError); ok {
+		*target = e
+		return true
+	}
+	return false
 }
 
 func (c *configImpl) Get(key string) any {
