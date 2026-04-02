@@ -19,6 +19,7 @@ go get github.com/CXeon/tiles
 
 ```
 tiles/
+├── cache/                # 缓存模块（接口 + Memory / Redis 实现）
 ├── config/               # 配置模块（接口 + Viper / Apollo 实现）
 ├── context/              # 上下文模块（AppContext，微服务链路字段透传）
 ├── db/
@@ -30,6 +31,21 @@ tiles/
 ```
 
 ## 模块说明
+
+### Cache（缓存模块）
+
+位于 `cache/` 目录，提供统一的缓存抽象接口，覆盖 Redis 常用数据类型操作，内存实现可作为 Redis 的开发/测试替代品。
+
+**核心功能**：
+- 统一接口覆盖 Redis 常用操作：String、Hash、List、Set、Sorted Set 及原子计数器
+- 内存与 Redis 实现均满足同一接口，可通过一行代码无感知切换
+- 扩展接口设计（Wrap Interface）：`RedisCache` 在基础接口之上追加 Pipeline、Pub/Sub、Scan 等 Redis 独有能力
+- 错误归一：`redis.Nil`、`WRONGTYPE` 等 Redis 错误统一转换为 `cache` 包哨兵错误
+- TTL 全面支持：`Set`、`Expire`、`TTL`、`SetNX` 均支持过期控制
+
+**可用实现**：
+- **Memory**：基于标准库的内存缓存，无外部依赖，适合开发、测试及 Redis 不可用时的临时替代 - [文档](cache/memory/README.md)
+- **Redis**：基于 go-redis/v9，支持 Pipeline、事务 Pipeline、Pub/Sub、Scan 及原始客户端暴露 - [文档](cache/redis/README.md)
 
 ### Config（配置模块）
 
