@@ -103,7 +103,6 @@ func NewClient(ctx context.Context, provider *Provider, opts ...ClientOption) (g
 		opt(c)
 	}
 
-
 	// 如果用户没有设置健康检查路径，使用默认路径
 	if len(c.healthCheckPath) == 0 {
 		c.healthCheckPath = "/health"
@@ -121,11 +120,12 @@ func normalizeEndpoint(endpoint *gateway.Endpoint) (gateway.Endpoint, error) {
 		return gateway.Endpoint{}, err
 	}
 
-	// 协议转换: https -> http
 	normalized := *endpoint
-	if normalized.Protocol == gateway.ProtocolTypeHttps {
-		normalized.Protocol = gateway.ProtocolTypeHttp
+
+	if len(normalized.Color) == 0 {
+		normalized.Color = "clear"
 	}
+
 	return normalized, nil
 }
 
