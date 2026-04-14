@@ -13,7 +13,6 @@ import (
 )
 
 type HandlerOptions struct {
-	Middlewares      []string
 	HealthCheckPath  string
 	ExcludeAuthPaths []string
 }
@@ -80,13 +79,17 @@ func (h *handler) Register(ctx context.Context, endpoint gateway.Endpoint, opts 
 	}
 
 	constructor := NewConstructor()
+	forwardAuth := constructor.MiddlewareName(endpoint.Env, endpoint.Cluster, endpoint.Company, endpoint.Project)
+
+	var middlewares []string
+	middlewares = append(middlewares, forwardAuth)
 
 	// 1. 注册受保护路由 (Protected Router)
 	// 规则：基础路径前缀 + 精确匹配环境、集群、染色
 	basePath := fmt.Sprintf("/%s/%s/%s/", endpoint.Company, endpoint.Project, endpoint.Service)
 	protectedRule := fmt.Sprintf("PathPrefix(`%s`) && Header(`%s`, `%s`) && Header(`%s`, `%s`) && Header(`%s`, `%s`)",
 		basePath, HeaderKeyEnv, endpoint.Env, HeaderKeyCluster, endpoint.Cluster, HeaderKeyColor, endpoint.Color)
-	err := h.upsertRouter(ctx, endpoint, "", protectedRule, opt.Middlewares, 0)
+	err := h.upsertRouter(ctx, endpoint, "", protectedRule, middlewares, 0)
 	if err != nil {
 		return err
 	}
@@ -103,8 +106,8 @@ func (h *handler) Register(ctx context.Context, endpoint gateway.Endpoint, opts 
 
 		// 剔除身份验证中间件 (ForwardAuth)
 		publicMiddlewares := make([]string, 0)
-		for _, m := range opt.Middlewares {
-			if m != DefaultAuthMiddleware {
+		for _, m := range middlewares {
+			if m != forwardAuth {
 				publicMiddlewares = append(publicMiddlewares, m)
 			}
 		}

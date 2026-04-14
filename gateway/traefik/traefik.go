@@ -3,7 +3,6 @@ package traefik
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sync"
 	"time"
 
@@ -11,8 +10,8 @@ import (
 )
 
 type traefikClient struct {
-	handler          *handler
-	middlewares      []string // 全局默认中间件
+	handler *handler
+	//	middlewares      []string // 全局默认中间件
 	excludeAuthPaths []string // 排除身份验证的完整路径，如/Company/Project/Service/Public
 	healthCheckPath  string
 	autoRenew        bool                     // 是否自动续约（默认 true）
@@ -32,11 +31,11 @@ func WithExcludeAuthPaths(paths []string) ClientOption {
 }
 
 // WithDefaultMiddlewares 设置默认中间件
-func WithDefaultMiddlewares(middlewares []string) ClientOption {
-	return func(c *traefikClient) {
-		c.middlewares = middlewares
-	}
-}
+// func WithDefaultMiddlewares(middlewares []string) ClientOption {
+// 	return func(c *traefikClient) {
+// 		c.middlewares = middlewares
+// 	}
+// }
 
 // WithHealthCheckPath 用户自定义健康检查路径
 func WithHealthCheckPath(path string) ClientOption {
@@ -96,7 +95,6 @@ func NewClient(ctx context.Context, provider *Provider, opts ...ClientOption) (g
 	}
 	c := &traefikClient{
 		handler:         h,
-		middlewares:     []string{},
 		autoRenew:       true, // 默认启用自动续约
 		renewGoroutines: make(map[string]chan struct{}),
 	}
@@ -105,10 +103,6 @@ func NewClient(ctx context.Context, provider *Provider, opts ...ClientOption) (g
 		opt(c)
 	}
 
-	// 如果中间件不包括ForwardAuth,手动添加
-	if !slices.Contains(c.middlewares, "ForwardAuth") {
-		c.middlewares = append(c.middlewares, "ForwardAuth")
-	}
 
 	// 如果用户没有设置健康检查路径，使用默认路径
 	if len(c.healthCheckPath) == 0 {
@@ -138,7 +132,6 @@ func normalizeEndpoint(endpoint *gateway.Endpoint) (gateway.Endpoint, error) {
 // buildHandlerOptions 构造 HandlerOptions
 func (c *traefikClient) buildHandlerOptions() HandlerOptions {
 	return HandlerOptions{
-		Middlewares:      c.middlewares,
 		ExcludeAuthPaths: c.excludeAuthPaths,
 		HealthCheckPath:  c.healthCheckPath,
 	}

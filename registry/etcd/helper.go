@@ -10,11 +10,8 @@ import (
 )
 
 func (h *handler) getServiceEtcdKey(e registry.Endpoint) string {
-	protocol := registry.ProtocolTypeHttps
-	if e.Protocol == registry.ProtocolTypeHttps {
-		protocol = registry.ProtocolTypeHttp
-	}
-	return fmt.Sprintf("%s/%s/%s/%s/%s/%s@%s", e.Env, e.Cluster, e.Company, e.Project, protocol, e.Service, e.Color)
+
+	return fmt.Sprintf("%s/%s/%s/%s/%s/%s@%s", e.Env, e.Cluster, e.Company, e.Project, e.Protocol, e.Service, e.Color)
 }
 
 func (h *handler) buildDiscoverKey(env, cluster, company, project string, protocol registry.ProtocolType, service, color string) string {

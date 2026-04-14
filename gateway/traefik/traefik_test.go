@@ -60,8 +60,7 @@ func TestTraefikClient_Register(t *testing.T) {
 		store: mockStore,
 	}
 	client := &traefikClient{
-		handler:     h,
-		middlewares: []string{DefaultAuthMiddleware},
+		handler: h,
 	}
 
 	endpoint := &gateway.Endpoint{
@@ -94,9 +93,11 @@ func TestTraefikClient_Register(t *testing.T) {
 	normalizedEndpoint := *endpoint
 	normalizedEndpoint.Protocol = gateway.ProtocolTypeHttp
 
+	expectedMiddleware := constructor.MiddlewareName("dev", "china", "testco", "testprj")
+
 	protectedRule := fmt.Sprintf("PathPrefix(`/testco/testprj/testsvc/`) && Header(`%s`, `dev`) && Header(`%s`, `china`) && Header(`%s`, `blue`)", HeaderKeyEnv, HeaderKeyCluster, HeaderKeyColor)
 	mockStore.On("Put", constructor.GenRouterRuleKey(normalizedEndpoint, ""), []byte(protectedRule)).Return(nil)
-	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, normalizedEndpoint, ""), []byte(DefaultAuthMiddleware)).Return(nil)
+	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, normalizedEndpoint, ""), []byte(expectedMiddleware)).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(0, normalizedEndpoint, ""), []byte("web")).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(1, normalizedEndpoint, ""), []byte("websecure")).Return(nil)
 	// Service Name 应该是逻辑服务标识，而非 Instance ID
@@ -119,7 +120,6 @@ func TestTraefikClient_ExcludeAuthPaths(t *testing.T) {
 	}
 	client := &traefikClient{
 		handler:          h,
-		middlewares:      []string{DefaultAuthMiddleware},
 		excludeAuthPaths: []string{"/testco/testprj/svc/public", "/testco/testprj/svc/health"},
 	}
 
@@ -136,6 +136,7 @@ func TestTraefikClient_ExcludeAuthPaths(t *testing.T) {
 	}
 
 	constructor := NewConstructor()
+	expectedMiddleware := constructor.MiddlewareName("dev", "china", "testco", "testprj")
 
 	// 首先设置通配符，作为fallback
 	mockStore.On("GetByPrefix", mock.Anything).Return(map[string][]byte{}, nil)
@@ -144,7 +145,7 @@ func TestTraefikClient_ExcludeAuthPaths(t *testing.T) {
 	// 1. 注册受保护路由 (默认)
 	protectedRule := fmt.Sprintf("PathPrefix(`/testco/testprj/svc/`) && Header(`%s`, `dev`) && Header(`%s`, `china`) && Header(`%s`, `blue`)", HeaderKeyEnv, HeaderKeyCluster, HeaderKeyColor)
 	mockStore.On("Put", constructor.GenRouterRuleKey(*endpoint, ""), []byte(protectedRule)).Return(nil)
-	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, *endpoint, ""), []byte(DefaultAuthMiddleware)).Return(nil)
+	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, *endpoint, ""), []byte(expectedMiddleware)).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(0, *endpoint, ""), []byte("web")).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(1, *endpoint, ""), []byte("websecure")).Return(nil)
 	// Service Name 应该是逻辑服务标识
@@ -172,8 +173,7 @@ func TestTraefikClient_Deregister(t *testing.T) {
 		store: mockStore,
 	}
 	client := &traefikClient{
-		handler:     h,
-		middlewares: []string{DefaultAuthMiddleware},
+		handler: h,
 	}
 
 	endpoint := &gateway.Endpoint{
@@ -220,7 +220,6 @@ func TestTraefikClient_RegisterWithOptions(t *testing.T) {
 	}
 	client := &traefikClient{
 		handler:         h,
-		middlewares:     []string{DefaultAuthMiddleware},
 		healthCheckPath: "/ping",
 	}
 
@@ -238,11 +237,12 @@ func TestTraefikClient_RegisterWithOptions(t *testing.T) {
 	}
 
 	constructor := NewConstructor()
+	expectedMiddleware := constructor.MiddlewareName("dev", "china", "testco", "testprj")
 
 	// 预期行为：
-	// 1. 设置默认中间件 ForwardAuth（注意：client直接构造，没有从 Extra 中读取）
+	// 1. 设置中间件 ForwardAuth（从 endpoint 动态计算）
 	mockStore.On("Put", constructor.GenRouterRuleKey(*endpoint, ""), mock.Anything).Return(nil)
-	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, *endpoint, ""), []byte(DefaultAuthMiddleware)).Return(nil)
+	mockStore.On("Put", constructor.GenRouterMiddlewareKey(0, *endpoint, ""), []byte(expectedMiddleware)).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(0, *endpoint, ""), []byte("web")).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(1, *endpoint, ""), []byte("websecure")).Return(nil)
 	// Service Name 应该是逻辑服务标识
@@ -314,23 +314,19 @@ func TestNormalizeEndpoint(t *testing.T) {
 func TestBuildHandlerOptions(t *testing.T) {
 	t.Run("with complete paths", func(t *testing.T) {
 		client := &traefikClient{
-			middlewares:      []string{DefaultAuthMiddleware, "RateLimit"},
 			excludeAuthPaths: []string{"/company/project/service/public", "/company/project/service/health"},
 			healthCheckPath:  "/ping",
 		}
 		opts := client.buildHandlerOptions()
-		assert.Equal(t, []string{DefaultAuthMiddleware, "RateLimit"}, opts.Middlewares)
 		assert.Equal(t, []string{"/company/project/service/public", "/company/project/service/health"}, opts.ExcludeAuthPaths)
 		assert.Equal(t, "/ping", opts.HealthCheckPath)
 	})
 
 	t.Run("with empty paths", func(t *testing.T) {
 		client := &traefikClient{
-			middlewares:     []string{DefaultAuthMiddleware},
 			healthCheckPath: "/health",
 		}
 		opts := client.buildHandlerOptions()
-		assert.Equal(t, []string{DefaultAuthMiddleware}, opts.Middlewares)
 		assert.Empty(t, opts.ExcludeAuthPaths)
 		assert.Equal(t, "/health", opts.HealthCheckPath)
 	})

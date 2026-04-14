@@ -220,3 +220,17 @@ func (con *constructor) GenServiceAddressKey(index int, endpoint gateway.Endpoin
 	prefix = strings.Replace(prefix, endpoint.ID()+"/", "", 1)
 	return prefix + "loadBalancer/servers/" + strconv.Itoa(index) + "/address"
 }
+
+/**Middlewares**/
+
+// MiddlewareName generates the ForwardAuth middleware name.
+// Format: {Env}.{Cluster}.{Company}.{Project}.ForwardAuth
+func (con *constructor) MiddlewareName(env, cluster, company, project string) string {
+	return fmt.Sprintf("%s.%s.%s.%s.ForwardAuth", env, cluster, company, project)
+}
+
+// MiddlewareKeyPrefix returns the KV key prefix for a ForwardAuth middleware.
+// Format: {prefix}/http/middlewares/{name}/
+func (con *constructor) MiddlewareKeyPrefix(name string) string {
+	return fmt.Sprintf("%s/http/middlewares/%s/", con.prefix, name)
+}

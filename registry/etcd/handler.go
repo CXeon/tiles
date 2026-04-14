@@ -138,9 +138,7 @@ func (h *handler) discover(ctx context.Context, services []string, option ...reg
 	env := h.currentEndpoint.Env
 	cluster := h.currentEndpoint.Cluster
 	protocol := h.currentEndpoint.Protocol
-	if protocol == registry.ProtocolTypeHttps {
-		protocol = registry.ProtocolTypeHttp
-	}
+
 	color := h.currentEndpoint.Color
 
 	// 6. 按 services + ComProj 遍历查询，组织成 Company -> Project -> Service -> Instances 的结构
@@ -230,9 +228,7 @@ func (h *handler) watch(ctx context.Context, services []string, option ...regist
 	env := h.currentEndpoint.Env
 	cluster := h.currentEndpoint.Cluster
 	protocol := h.currentEndpoint.Protocol
-	if protocol == registry.ProtocolTypeHttps {
-		protocol = registry.ProtocolTypeHttp
-	}
+	
 	color := h.currentEndpoint.Color
 
 	// 6. 创建watch context

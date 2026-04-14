@@ -5,15 +5,12 @@ import (
 	"time"
 )
 
-// 默认中间件名称
-const (
-	DefaultAuthMiddleware = "ForwardAuth" // 默认的身份验证中间件
-)
-
 // 默认 Header Key 名称
 const (
 	HeaderKeyEnv     = "X-Env"     // 环境标识
 	HeaderKeyCluster = "X-Cluster" // 集群标识
+	HeaderKeyCompany = "X-Company" // 公司标识
+	HeaderKeyProject = "X-Project" // 项目标识
 	HeaderKeyColor   = "X-Color"   // 染色标识
 )
 
