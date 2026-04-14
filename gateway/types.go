@@ -7,13 +7,12 @@ import (
 type ProtocolType string
 
 const (
-	ProtocolTypeHttp  = "http"
-	ProtocolTypeHttps = "https"
+	ProtocolTypeHttp = "http"
 )
 
 func (p ProtocolType) Validate() error {
 	switch p {
-	case ProtocolTypeHttp, ProtocolTypeHttps:
+	case ProtocolTypeHttp:
 		return nil
 	}
 	return fmt.Errorf("protocol type %s is not supported", p)
