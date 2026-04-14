@@ -27,7 +27,8 @@ tiles/
 ├── errors/               # 错误模块（结构化错误码，哨兵错误，错误链）
 ├── gateway/              # 网关模块（接口 + Traefik 实现）
 ├── logger/               # 日志模块（接口 + Zap / Logrus / Slog 实现）
-└── registry/             # 服务注册中心模块（接口 + Etcd 实现）
+├── registry/             # 服务注册中心模块（接口 + Etcd 实现）
+└── util/                 # 工具模块（gormlog / ip / regex）
 ```
 
 ## 模块说明
@@ -47,6 +48,8 @@ tiles/
 - **Memory**：基于标准库的内存缓存，无外部依赖，适合开发、测试及 Redis 不可用时的临时替代 - [文档](cache/memory/README.md)
 - **Redis**：基于 go-redis/v9，支持 Pipeline、事务 Pipeline、Pub/Sub、Scan 及原始客户端暴露 - [文档](cache/redis/README.md)
 
+[接口文档](cache/README.md)
+
 ### Config（配置模块）
 
 位于 `config/` 目录，提供统一的配置加载与热更新抽象接口和多种实现。
@@ -62,6 +65,8 @@ tiles/
 - **Viper**：本地文件（YAML/JSON/TOML/ENV）+ 环境变量绑定，基于 fsnotify 热更新 - [文档](config/viper/README.md)
 - **Apollo**：远程 Apollo 配置中心，服务端主动推送，支持本地备份容灾 - [文档](config/apollo/README.md)
 
+[接口文档](config/README.md)
+
 ### Context（上下文模块）
 
 位于 `context/` 目录，提供微服务链路中的标准化请求上下文，用于在服务内部和跨服务调用之间透传通用字段。
@@ -71,6 +76,8 @@ tiles/
 - 支持从 HTTP Header 自动提取字段（供网关/中间件使用）
 - 支持任意扩展字段（`Extra`），满足业务自定义需求
 - 兼容标准 `context.Context` 接口，可直接传入所有标准库及第三方函数
+
+[文档](context/README.md)
 
 ### DB（数据库模块）
 
@@ -83,6 +90,8 @@ tiles/
 - 支持注入自定义 GORM Logger，与项目日志系统集成
 - `GetDB()` 返回底层 `*gorm.DB`，`Pool()` 返回 `*sql.DB`，覆盖所有使用场景
 
+[文档](db/gormdb/README.md)
+
 ### Errors（错误模块）
 
 位于 `errors/` 目录，提供统一的结构化错误类型与哨兵错误定义，支持错误链追踪。
@@ -93,6 +102,8 @@ tiles/
 - `WithErrMsg` 附加内部诊断信息（仅写日志，不暴露给用户）
 - `Wrap` 包装底层错误，保留完整错误链，兼容 `errors.As`
 - 不可变设计：`WithErrMsg` / `Wrap` 均返回新实例，不修改原哨兵错误
+
+[文档](errors/README.md)
 
 ### Logger（日志模块）
 
@@ -110,6 +121,8 @@ tiles/
 - **Logrus**：社区流行，生态成熟 - [文档](logger/logrus/README.md)
 - **Slog**：Go 1.21+ 官方标准库，零依赖 - [文档](logger/slog/README.md)
 
+[接口文档](logger/README.md)
+
 ### Gateway（网关模块）
 
 位于 `gateway/` 目录，提供服务网关的抽象接口和具体实现。
@@ -121,6 +134,8 @@ tiles/
 
 **可用实现**：
 - **Traefik**：基于 Traefik + etcd 的动态路由实现 - [文档](gateway/traefik/README.md)
+
+[接口文档](gateway/README.md)
 
 ### Registry（服务注册中心模块）
 
@@ -135,6 +150,17 @@ tiles/
 
 **可用实现**：
 - **Etcd**：基于 etcd 的服务注册中心实现 - [文档](registry/etcd/README.md)
+
+[接口文档](registry/README.md)
+
+### Util（工具模块）
+
+位于 `util/` 目录，提供微服务开发中常用的轻量工具函数集合，各子包独立引用，按需使用。
+
+**可用工具**：
+- **gormlog**：将 tiles `logger.Logger` 适配为 GORM `logger.Interface`，实现 SQL 慢查询告警与结构化日志 - [文档](util/gormlog/README.md)
+- **ip**：获取本机第一个有效 IPv4 地址（自动排除回环和 Docker bridge），跨平台支持 - [文档](util/ip/README.md)
+- **regex**：常用正则校验工具（邮箱等），内部预编译无额外开销 - [文档](util/regex/README.md)
 
 ## 贡献
 
