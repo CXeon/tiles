@@ -1,15 +1,11 @@
 package http
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
-
-	"github.com/bytedance/sonic"
 
 	"github.com/CXeon/tiles/rpc"
 )
@@ -111,9 +107,3 @@ func (c *client) Invoke(_ context.Context, _ string, _, _ any, _ ...rpc.CallOpti
 func (c *client) Close(_ context.Context) error {
 	return nil
 }
-
-// 占位，避免 import 未使用报错（Task 4 实现 Invoke 后删除）
-var _ = sonic.Marshal
-var _ = bytes.NewReader
-var _ = io.ReadAll
-var _ = fmt.Errorf
