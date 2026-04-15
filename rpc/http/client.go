@@ -1,11 +1,15 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
+
+	"github.com/bytedance/sonic"
 
 	"github.com/CXeon/tiles/rpc"
 )
@@ -99,11 +103,122 @@ func WithTraceID(traceID string) rpc.CallOption {
 	}
 }
 
-// Invoke stub — 将在 Task 4 中替换为完整实现
-func (c *client) Invoke(_ context.Context, _ string, _, _ any, _ ...rpc.CallOption) error {
-	return errors.New("not implemented")
+func (c *client) Invoke(ctx context.Context, method string, req, resp any, opts ...rpc.CallOption) error {
+	// 1. 聚合所有 CallOption
+	co := &rpc.CallOptions{}
+	for _, o := range opts {
+		o(co)
+	}
+
+	// 2. path 必填
+	if co.Path == "" {
+		return rpc.ErrPathRequired
+	}
+
+	// 3. 解析目标地址
+	baseURL := c.cfg.BaseURL
+	if c.resolver != nil {
+		var err error
+		baseURL, err = c.resolver.Resolve(ctx, c.cfg.Service)
+		if err != nil {
+			return fmt.Errorf("%w: %w", rpc.ErrResolverFailed, err)
+		}
+	}
+
+	// 4. 序列化请求体
+	var bodyReader io.Reader
+	if req != nil {
+		data, err := sonic.Marshal(req)
+		if err != nil {
+			return fmt.Errorf("marshal request: %w", err)
+		}
+		bodyReader = bytes.NewReader(data)
+	}
+
+	// 5. 逐次超时覆盖（WithTimeout 优先于 Config.Timeout）
+	if co.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, co.Timeout)
+		defer cancel()
+	}
+
+	// 6. 构造 HTTP Request
+	httpReq, err := http.NewRequestWithContext(ctx, method, baseURL+co.Path, bodyReader)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+
+	// 7. 设置 Header
+	httpReq.Header.Set("Content-Type", c.cfg.ContentType)
+	for k, v := range co.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	// 8. 设置 X-Trace-ID：WithTraceID > TraceIDExtractor > 不设置
+	traceID := co.TraceID
+	if traceID == "" && c.cfg.TraceIDExtractor != nil {
+		traceID = c.cfg.TraceIDExtractor(ctx)
+	}
+	if traceID != "" {
+		httpReq.Header.Set("X-Trace-ID", traceID)
+	}
+
+	// 9. 设置 Query 参数
+	if len(co.Query) > 0 {
+		q := httpReq.URL.Query()
+		for k, v := range co.Query {
+			q.Set(k, v)
+		}
+		httpReq.URL.RawQuery = q.Encode()
+	}
+
+	// 10. 执行请求
+	httpResp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("do request: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	body, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+
+	// 11. 4xx/5xx 传输层错误
+	if httpResp.StatusCode >= 400 {
+		return &HTTPError{
+			Code:    uint(httpResp.StatusCode),
+			Message: string(body),
+			TraceID: httpResp.Header.Get("X-Trace-ID"),
+		}
+	}
+
+	// 12. 反序列化响应包络
+	var envelope rpc.Response
+	if err := sonic.Unmarshal(body, &envelope); err != nil {
+		return fmt.Errorf("%w: %w", rpc.ErrInvalidResponse, err)
+	}
+
+	// 13. 业务错误
+	if envelope.Code != 0 {
+		return &rpc.ResponseError{
+			Code:    envelope.Code,
+			Message: envelope.Message,
+			TraceID: envelope.TraceID,
+		}
+	}
+
+	// 14. 反序列化 Data 到 resp
+	if resp != nil && len(envelope.Data) > 0 {
+		if err := sonic.Unmarshal(envelope.Data, resp); err != nil {
+			return fmt.Errorf("%w: %w", rpc.ErrInvalidResponse, err)
+		}
+	}
+
+	return nil
 }
 
 func (c *client) Close(_ context.Context) error {
+	c.httpClient.CloseIdleConnections()
 	return nil
 }
