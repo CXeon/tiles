@@ -11,7 +11,7 @@ import (
 var (
 	ErrPathRequired    = errors.New("path is required, use WithPath()")
 	ErrResolverFailed  = errors.New("resolver failed to resolve service address")
-	ErrInvalidResponse = errors.New("failed to decode response")
+	ErrInvalidResponse = errors.New("invalid response")
 )
 
 // Resolver 将服务名解析为 base URL（如 "http://192.168.1.1:8080"）
@@ -49,6 +49,9 @@ type ResponseError struct {
 }
 
 func (e *ResponseError) Error() string {
+	if e.TraceID == "" {
+		return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
+	}
 	return fmt.Sprintf("rpc error %d: %s (trace_id=%s)", e.Code, e.Message, e.TraceID)
 }
 
