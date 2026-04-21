@@ -41,7 +41,7 @@ type stubResolver struct {
 	err  error
 }
 
-func (s *stubResolver) Resolve(_ context.Context, _ string) (string, error) {
+func (s *stubResolver) Resolve(_ context.Context, _, _, _ string) (string, error) {
 	return s.addr, s.err
 }
 

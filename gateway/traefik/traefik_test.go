@@ -154,7 +154,7 @@ func TestTraefikClient_ExcludeAuthPaths(t *testing.T) {
 
 	// 2. 注册公开路由
 	// 注意拼接后的路径：/testco/testprj/svc/public 和 /testco/testprj/svc/health
-	publicRule := fmt.Sprintf("PathPrefix(`/testco/testprj/svc/public`, `/testco/testprj/svc/health`) && Header(`%s`, `dev`) && Header(`%s`, `china`) && Header(`%s`, `blue`)", HeaderKeyEnv, HeaderKeyCluster, HeaderKeyColor)
+	publicRule := fmt.Sprintf("(PathPrefix(`/testco/testprj/svc/public`) || PathPrefix(`/testco/testprj/svc/health`)) && Header(`%s`, `dev`) && Header(`%s`, `china`) && Header(`%s`, `blue`)", HeaderKeyEnv, HeaderKeyCluster, HeaderKeyColor)
 	mockStore.On("Put", constructor.GenRouterRuleKey(*endpoint, "public"), []byte(publicRule)).Return(nil)
 	mockStore.On("Put", constructor.GenRouterPriorityKey(*endpoint, "public"), []byte("1000")).Return(nil)
 	mockStore.On("Put", constructor.GenRouterEntrypointKey(0, *endpoint, "public"), []byte("web")).Return(nil)

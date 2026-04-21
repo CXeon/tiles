@@ -97,12 +97,12 @@ func (h *handler) Register(ctx context.Context, endpoint gateway.Endpoint, opts 
 	// 2. 注册公开路由 (Public Router) - 如果有排除路径
 	if len(opt.ExcludeAuthPaths) > 0 {
 		// 规则：所有排除路径的集合 + 精确匹配环境、集群、染色
-		paths := make([]string, 0, len(opt.ExcludeAuthPaths))
+		pathRules := make([]string, 0, len(opt.ExcludeAuthPaths))
 		for _, p := range opt.ExcludeAuthPaths {
-			paths = append(paths, fmt.Sprintf("`%s`", p))
+			pathRules = append(pathRules, fmt.Sprintf("PathPrefix(`%s`)", p))
 		}
-		publicRule := fmt.Sprintf("PathPrefix(%s) && Header(`%s`, `%s`) && Header(`%s`, `%s`) && Header(`%s`, `%s`)",
-			strings.Join(paths, ", "), HeaderKeyEnv, endpoint.Env, HeaderKeyCluster, endpoint.Cluster, HeaderKeyColor, endpoint.Color)
+		publicRule := fmt.Sprintf("(%s) && Header(`%s`, `%s`) && Header(`%s`, `%s`) && Header(`%s`, `%s`)",
+			strings.Join(pathRules, " || "), HeaderKeyEnv, endpoint.Env, HeaderKeyCluster, endpoint.Cluster, HeaderKeyColor, endpoint.Color)
 
 		// 剔除身份验证中间件 (ForwardAuth)
 		publicMiddlewares := make([]string, 0)
