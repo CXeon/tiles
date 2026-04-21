@@ -26,6 +26,12 @@ type Config struct {
 	ContentType string
 	// TraceIDExtractor 从 ctx 自动提取 TraceID；可被 WithTraceID 逐次覆盖
 	TraceIDExtractor func(ctx context.Context) string
+	// 公司名称
+	Company string
+	// 项目名称
+	Project string
+	// 染色
+	Color string
 }
 
 // HTTPError 表示服务端返回了 4xx/5xx 传输层错误
@@ -119,7 +125,7 @@ func (c *client) Invoke(ctx context.Context, method string, req, resp any, opts 
 	baseURL := c.cfg.BaseURL
 	if c.resolver != nil {
 		var err error
-		baseURL, err = c.resolver.Resolve(ctx, c.cfg.Service)
+		baseURL, err = c.resolver.Resolve(ctx, c.cfg.Company, c.cfg.Project, c.cfg.Service, c.cfg.Color)
 		if err != nil {
 			return fmt.Errorf("%w: %w", rpc.ErrResolverFailed, err)
 		}

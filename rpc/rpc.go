@@ -17,7 +17,7 @@ var (
 // Resolver 将服务名解析为 base URL（如 "http://192.168.1.1:8080"）
 // 调用方可用 registry.Client 实现此接口，rpc 包不直接依赖 registry
 type Resolver interface {
-	Resolve(ctx context.Context, service string) (string, error)
+	Resolve(ctx context.Context, company, project, service, color string) (string, error)
 }
 
 // CallOption 修改单次调用的选项
